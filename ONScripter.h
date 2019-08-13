@@ -2,8 +2,7 @@
  * 
  *  ONScripter.h - Execution block parser of ONScripter
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2019 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -32,10 +31,6 @@
 #include <SDL_image.h>
 #include <SDL_ttf.h>
 #include <SDL_mixer.h>
-#if defined(USE_SMPEG)
-#include <smpeg.h>
-#endif    
-#include "direct_draw.h"
 
 #define DEFAULT_VIDEO_SURFACE_FLAG (SDL_SWSURFACE)
 
@@ -44,7 +39,6 @@
 
 #define MAX_SPRITE_NUM 1000
 #define MAX_SPRITE2_NUM 256
-#define MAX_TEXTURE_NUM 16
 #define MAX_PARAM_NUM 100
 #define MAX_EFFECT_NUM 256
 
@@ -62,18 +56,8 @@
 class ONScripter : public ScriptParser
 {
 public:
-    friend class DirectDraw;
-    DirectDraw directDraw;
     typedef AnimationInfo::ONSBuf ONSBuf;
     
-    struct ButtonState{
-        unsigned int event_type;
-        unsigned char event_button;
-        int x, y, button;
-        char str[16];
-        bool down_flag;
-    };
-        
     ONScripter();
     ~ONScripter();
 
@@ -88,23 +72,17 @@ public:
     void setSaveDir(const char *path);
     void setFullscreenMode();
     void setWindowMode();
-    void setCompatibilityMode();
-    void setVsyncOff();
-    void setFontCache();
-    void setDebugLevel(int debug);
     void enableButtonShortCut();
     void enableWheelDownAdvance();
     void disableRescale();
     void renderFontOutline();
     void enableEdit();
     void setKeyEXE(const char *path);
-    const char* getArchivePath() { return archive_path; };
     int  getWidth(){ return screen_width;};
     int  getHeight(){return screen_height;};
-    ButtonState &getCurrentButtonState(){return current_button_state;};
+    const char* getCurrentButtonStr(){return current_button_state.str;};
     int  getSkip(){return automode_flag?2:((skip_mode&SKIP_NORMAL)?1:0);};
-    AnimationInfo *getSMPEGInfo(){return smpeg_info;};
-    
+        
     int  openScript();
     int  init();
 
@@ -138,7 +116,6 @@ public:
     int textonCommand();
     int textoffCommand();
     int texthideCommand();
-    int textcolorCommand();
     int textclearCommand();
     int texecCommand();
     int tateyokoCommand();
@@ -161,7 +138,6 @@ public:
     int setcursorCommand();
     int selectCommand();
     int savetimeCommand();
-    int savepointCommand();
     int saveonCommand();
     int saveoffCommand();
     int savegameCommand();
@@ -183,7 +159,6 @@ public:
     int okcancelboxCommand();
     int ofscopyCommand();
     int negaCommand();
-    int nextcselCommand();
     int mspCommand();
     int mpegplayCommand();
     int mp3volCommand();
@@ -209,7 +184,6 @@ public:
     int locateCommand();
     int loadgameCommand();
     int ldCommand();
-    int layermessageCommand();
     int kinsokuCommand();
     int jumpfCommand();
     int jumpbCommand();
@@ -241,7 +215,6 @@ public:
     int getmp3volCommand();
     int getmouseposCommand();
     int getmouseoverCommand();
-    int getmclickCommand();
     int getlogCommand();
     int getinsertCommand();
     int getfunctionCommand();
@@ -252,7 +225,6 @@ public:
     int getcselstrCommand();
     int getcselnumCommand();
     int gameCommand();
-    int flushoutCommand();
     int fileexistCommand();
     int exec_dllCommand();
     int exbtnCommand();
@@ -270,7 +242,6 @@ public:
     int drawbg2Command();
     int drawbgCommand();
     int drawCommand();
-    int deletescreenshotCommand();
     int delayCommand();
     int defineresetCommand();
     int cspCommand();
@@ -295,7 +266,6 @@ public:
     int bltCommand();
     int bgcopyCommand();
     int bgCommand();
-    int bdownCommand();
     int barclearCommand();
     int barCommand();
     int aviCommand();
@@ -306,17 +276,6 @@ public:
     int allsp2hideCommand();
     int allsphideCommand();
     int amspCommand();
-
-    void NSDCallCommand(int texnum, const char *str1, int proc, const char *str2);
-    void NSDDeleteCommand(int texnum);
-    void NSDLoadCommand(int texnum, const char *str);
-    void NSDPresentRectCommand(int x1, int y1, int x2, int y2);
-    void NSDSp2Command(int texnum, int dcx, int dcy, int sx, int sy, int w, int h,
-                       int xs, int ys, int rot, int alpha);
-    void NSDSetSpriteCommand(int spnum, int texnum, const char *tag);
-
-    void stopSMPEG();
-    void updateEffectDst();
     
 private:
     // ----------------------------------------
@@ -349,13 +308,13 @@ private:
     bool disable_rescale_flag;
     bool edit_flag;
     char *key_exe_file;
-    bool compatibilityMode;
-    bool vsync;
-    bool cacheFont;
-    bool screen_dirty_flag;
 
     // variables relevant to button
-    ButtonState current_button_state, last_mouse_state;
+    struct ButtonState{
+        int x, y, button;
+        char str[16];
+        bool down_flag;
+    } current_button_state, last_mouse_state;
 
     ButtonLink root_button_link, *current_button_link, exbtn_d_button_link;
     bool is_exbtn_enabled;
@@ -375,7 +334,6 @@ private:
     bool gettab_flag;
     bool getpageup_flag;
     bool getpagedown_flag;
-    bool getmclick_flag;
     bool getinsert_flag;
     bool getfunction_flag;
     bool getenter_flag;
@@ -411,25 +369,17 @@ private:
     int  shortcut_mouse_line;
 
     void initSDL();
-    void calcRenderRect();
-    void openAudio(int freq=-1);
+    void openAudio();
     void reset(); // called on definereset
     void resetSub(); // called on reset
     void resetSentenceFont();
     void flush( int refresh_mode, SDL_Rect *rect=NULL, bool clear_dirty_flag=true, bool direct_flag=false );
     void flushDirect( SDL_Rect &rect, int refresh_mode );
-    #ifdef USE_SMPEG
-    void flushDirectYUV(SDL_Overlay *overlay);
-    #endif
     void mouseOverCheck( int x, int y );
-    void warpMouse(int x, int y);
-    void setFullScreen(bool fullscreen);
 public:
     void executeLabel();
     void runScript();
     AnimationInfo *getSpriteInfo(int no){ return &sprite_info[no]; };
-    AnimationInfo *getSprite2Info(int no){ return &sprite2_info[no]; };
-    Uint32 getTextureFormat() { return texture_format; };
 private:
     int  parseLine();
     void deleteButtonLink();
@@ -459,7 +409,6 @@ private:
     AnimationInfo btndef_info, bg_info, cursor_info[2];
     AnimationInfo tachi_info[3]; // 0 ... left, 1 ... center, 2 ... right
     AnimationInfo *sprite_info, *sprite2_info;
-    AnimationInfo *texture_info;
     AnimationInfo *bar_info[MAX_PARAM_NUM], *prnum_info[MAX_PARAM_NUM];
     AnimationInfo lookback_info[4];
     AnimationInfo dialog_info;
@@ -470,7 +419,8 @@ private:
     bool show_dialog_flag;
     
     int  calcDurationToNextAnimation();
-    void proceedAnimation(int current_time);
+    void stepAnimation(int t);
+    void proceedAnimation();
     void setupAnimationInfo(AnimationInfo *anim, FontInfo *info=NULL);
     void parseTaggedString(AnimationInfo *anim );
     void drawTaggedSurface(SDL_Surface *dst_surface, AnimationInfo *anim, SDL_Rect &clip);
@@ -484,10 +434,8 @@ private:
     int  effect_timer_resolution;
     int  effect_start_time;
     int  effect_start_time_old;
-    volatile bool update_effect_dst;
-
-    void generateEffectDst(int effect_no);
-    bool setEffect( EffectLink *effect );
+    
+    bool setEffect( EffectLink *effect, bool generate_effect_dst, bool update_backup_surface );
     bool doEffect( EffectLink *effect, bool clear_dirty_region=true );
     void drawEffect( SDL_Rect *dst_rect, SDL_Rect *src_rect, SDL_Surface *surface );
     void generateMosaic( SDL_Surface *src_surface, int level );
@@ -506,20 +454,6 @@ private:
     void initBreakup( char *params );
     void effectBreakup( char *params, int duration );
 
-#ifdef USE_BUILTIN_EFFECTS
-    //cascade
-    void effectCascade(char *params, int duration);
-
-    //trig
-    int *sin_table, *cos_table;
-    void buildSinTable();
-    void buildCosTable();
-    void effectTrvswave(char *params, int duration);
-    int *whirl_table;
-    void buildWhirlTable();
-    void effectWhirl(char *params, int duration);
-#endif
-
     // ----------------------------------------
     // variables and methods relevant to event
     enum { NOT_EDIT_MODE            = 0,
@@ -531,7 +465,7 @@ private:
            EDIT_SE_VOLUME_MODE      = 6
     };
     
-    int  next_time;
+    int  remaining_time;
     int  variable_edit_mode;
     int  variable_edit_index;
     int  variable_edit_num;
@@ -544,25 +478,17 @@ private:
     void flushEvent();
     void removeEvent(int type);
     void removeBGMFadeEvent();
-public:
     void waitEventSub(int count);
-private:
     bool waitEvent(int count);
     bool trapHandler();
     bool mouseMoveEvent( SDL_MouseMotionEvent *event );
     bool mousePressEvent( SDL_MouseButtonEvent *event );
-
-    bool mouseWheelEvent(SDL_MouseWheelEvent *event);
-
     void variableEditMode( SDL_KeyboardEvent *event );
     void shiftCursorOnButton( int diff );
     bool keyDownEvent( SDL_KeyboardEvent *event );
     void keyUpEvent( SDL_KeyboardEvent *event );
     bool keyPressEvent( SDL_KeyboardEvent *event );
-    void timerEvent(bool init_flag);
-#if (defined(IOS) || defined(ANDROID) || defined(WINRT))
-    bool convTouchKey(SDL_TouchFingerEvent &finger);
-#endif
+    void timerEvent();
     void runEventLoop();
 
     // ----------------------------------------
@@ -571,8 +497,7 @@ private:
     char *readSaveStrFromFile( int no );
     int  loadSaveFile( int no );
     void saveMagicNumber( bool output_flag );
-    void storeSaveFile();
-    int  writeSaveFile( int no=0, const char *savestr=NULL );
+    int  saveSaveFile( bool write_to_disk, int no=0, const char *savestr=NULL );
 
     int  loadSaveFile2( int file_version );
     void saveSaveFile2( bool output_flag );
@@ -593,12 +518,11 @@ private:
     };
     int  refresh_shadow_text_mode;
 
+#ifdef USE_SDL_RENDERER
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *texture;
-
-    void setCaption(const char *title, const char *iconstr = NULL);
-    void setScreenDirty(bool screen_dirty);
+#endif
     // format = SDL_PIXELFORMAT_ABGR8888 for OpenGL ES 1.x, OpenGL ES 2.x (Android, iOS)
     // format = SDL_PIXELFORMAT_ARGB8888 for OpenGL, Direct3D (Windows, Linux, MacOSX) or for any 32bit surface without SDL_Renderer
     // format = SDL_PIXELFORMAT_RGB565 for any 16bit surface without SDL_Renderer (Android, Zaurus)
@@ -608,13 +532,9 @@ private:
     SDL_Surface *screen_surface; // Text + Select_image + Tachi image + background
     SDL_Surface *effect_dst_surface; // Intermediate source buffer for effect
     SDL_Surface *effect_src_surface; // Intermediate destnation buffer for effect
-    SDL_Surface *effect_tmp_surface; // Intermediate buffer for effect
     SDL_Surface *screenshot_surface; // Screenshot
     int screenshot_w, screenshot_h;
     SDL_Surface *image_surface; // Reference for loadImage()
-    int max_texture_width, max_texture_height;
-    SDL_Texture *blt_texture;
-    SDL_Rect blt_texture_src_rect;
 
     unsigned char *tmp_image_buf;
     unsigned long tmp_image_buf_length;
@@ -624,13 +544,13 @@ private:
     unsigned char *resize_buffer;
     size_t resize_buffer_size;
 
-    SDL_Surface *loadImage(char *filename, bool *has_alpha=NULL, int *location=NULL, unsigned char *alpha=NULL);
-    SDL_Surface *createRectangleSurface(char *filename, bool *has_alpha, unsigned char *alpha=NULL);
+    SDL_Surface *loadImage(char *filename, bool *has_alpha=NULL, int *location=NULL);
+    SDL_Surface *createRectangleSurface(char *filename, bool *has_alpha);
     SDL_Surface *createSurfaceFromFile(char *filename,bool *has_alpha, int *location);
 
     int  resizeSurface( SDL_Surface *src, SDL_Surface *dst );
-    void alphaBlend(SDL_Surface *mask_surface, int trans_mode, Uint32 mask_value = 255, SDL_Rect *clip = NULL,
-        SDL_Surface *src1 = NULL, SDL_Surface *src2 = NULL, SDL_Surface *dst = NULL);
+    void alphaBlend( SDL_Surface *mask_surface,
+                     int trans_mode, Uint32 mask_value = 255, SDL_Rect *clip=NULL );
     void alphaBlendText( SDL_Surface *dst_surface, SDL_Rect dst_rect,
                          SDL_Surface *src_surface, SDL_Color &color, SDL_Rect *clip, bool rotate_flag );
     void makeNegaSurface( SDL_Surface *surface, SDL_Rect &clip );
@@ -709,7 +629,6 @@ private:
     Uint32 mp3fadein_duration;
     Uint32 mp3fadeout_duration_internal;
     Uint32 mp3fadein_duration_internal;
-    char *fadeout_music_file_name;
     Mix_Music *music_info;
     char *loop_bgm_name[2];
     
@@ -717,14 +636,6 @@ private:
 
     char *midi_cmd;
 
-    unsigned char *layer_smpeg_buffer;
-    bool layer_smpeg_loop_flag;
-    AnimationInfo *smpeg_info;
-#if defined(USE_SMPEG)
-    SMPEG* layer_smpeg_sample;
-    SMPEG_Filter layer_smpeg_filter;
-#endif
-    
     int playSound(const char *filename, int format, bool loop_flag, int channel=0);
     void playCDAudio();
     int playWave(Mix_Chunk *chunk, int format, bool loop_flag, int channel);
@@ -754,8 +665,6 @@ private:
     };
     int  skip_mode;
 
-    int effect_tmp; //tmp variable for use by effect routines
-
     enum { TRAP_NONE        = 0,
            TRAP_LEFT_CLICK  = 1,
            TRAP_RIGHT_CLICK = 2,
@@ -780,19 +689,19 @@ private:
     AnimationInfo text_info;
     AnimationInfo sentence_font_info;
     char *font_file;
-    void *font_cache = NULL;
     int erase_text_window_mode;
     bool text_on_flag; // suppress the effect of erase_text_window_mode
     bool draw_cursor_flag;
+    int  textgosub_clickstr_state;
     int  indent_offset;
 
     void setwindowCore();
     
     void shiftHalfPixelX(SDL_Surface *surface);
     void shiftHalfPixelY(SDL_Surface *surface);
-    void drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color &color, char *text, int xy[2], AnimationInfo *cache_info, SDL_Rect *clip, SDL_Rect &dst_rect );
+    void drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color &color, char *text, int xy[2], bool shadow_flag, AnimationInfo *cache_info, SDL_Rect *clip, SDL_Rect &dst_rect );
     void drawChar( char* text, FontInfo *info, bool flush_flag, bool lookback_flag, SDL_Surface *surface, AnimationInfo *cache_info, SDL_Rect *clip=NULL );
-    void drawString( const char *str, uchar3 color, FontInfo *info, bool flush_flag, SDL_Surface *surface, SDL_Rect *rect = NULL, AnimationInfo *cache_info=NULL, bool pack_hankaku=true );
+    void drawString( const char *str, uchar3 color, FontInfo *info, bool flush_flag, SDL_Surface *surface, SDL_Rect *rect = NULL, AnimationInfo *cache_info=NULL );
     void restoreTextBuffer(SDL_Surface *surface = NULL);
     void enterTextDisplayMode(bool text_flag = true);
     void leaveTextDisplayMode(bool force_leave_flag = false);

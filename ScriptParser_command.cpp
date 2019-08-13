@@ -2,8 +2,7 @@
  *
  *  ScriptParser_command.cpp - Define command executer of ONScripter
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2018 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -23,11 +22,7 @@
  */
 
 #include "ScriptParser.h"
-#include "Utils.h"
 #include <math.h>
-#if defined(LINUX) || defined(MACOSX) || defined(IOS)
-#include <sys/stat.h>
-#endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -139,7 +134,8 @@ int ScriptParser::textgosubCommand()
         errorAndExit( "textgosub: not in the define section" );
 
     setStr( &textgosub_label, script_h.readStr()+1 );
-
+    script_h.enableTextgosub(true);
+    
     return RET_CONTINUE;
 }
 
@@ -191,7 +187,7 @@ int ScriptParser::soundpressplginCommand()
     for (int i=0 ; i<12 ; i++)
         if (buf2[i] >= 'A' && buf2[i] <= 'Z') buf2[i] += 'a' - 'A';
     if (strncmp(buf2, "nbzplgin.dll", 12)){
-        utils::printError( " *** plugin %s is not available, ignored. ***\n", buf);
+        fprintf( stderr, " *** plugin %s is not available, ignored. ***\n", buf);
         return RET_CONTINUE;
     }
 
@@ -237,51 +233,6 @@ int ScriptParser::shadedistanceCommand()
     if (shade_distance[0] == 0) shade_distance[0] = 1;
     shade_distance[1] = script_h.readInt() * screen_ratio1 / screen_ratio2;
     if (shade_distance[1] == 0) shade_distance[1] = 1;
-
-    return RET_CONTINUE;
-}
-
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-#include "builtin_layer.h"
-#endif
-
-int ScriptParser::setlayerCommand()
-{
-    if ( current_mode != DEFINE_MODE )
-        errorAndExit( "setlayer: not in the define section" );
-
-    int no = script_h.readInt();
-    int interval = script_h.readInt();
-    const char *dll = script_h.readStr();
-
-    #ifndef USE_BUILTIN_LAYER_EFFECTS
-    utils::printError("setlayer: layer effect support not available (%d,%d,'%s')",
-        no, interval, dll);
-    return RET_CONTINUE;
-    #else
-    LayerInfo *layer = &layer_info[no];
-    layer->interval = interval;
-    if (layer->handler) delete layer->handler;
-    layer->handler = NULL;
-    Layer *handler = NULL;
-    const char *bslash = strrchr(dll, '\\');
-    if ((bslash && !strncmp(bslash + 1, "oldmovie.dll", 12)) ||
-        !strncmp(dll, "oldmovie.dll", 12)) {
-        handler = new OldMovieLayer(screen_width, screen_height);
-    } else if ((bslash && !strncmp(bslash + 1, "snow.dll", 8)) ||
-        !strncmp(dll, "snow.dll", 8)) {
-        handler = new FuruLayer(screen_width, screen_height, false, script_h.cBR);
-    } else if ((bslash && !strncmp(bslash + 1, "hana.dll", 8)) ||
-        !strncmp(dll, "hana.dll", 8)) {
-        handler = new FuruLayer(screen_width, screen_height, true, script_h.cBR);
-    } else {
-        utils::printError("setlayer: layer effect '%s' is not implemented.", dll);
-        return RET_CONTINUE;
-    }
-
-    utils::printInfo("Setup layer effect for '%s'.\n", dll);
-    layer->handler = handler;
-    #endif // ndef USE_BUILTIN_LAYER_EFFECTS
 
     return RET_CONTINUE;
 }
@@ -353,18 +304,6 @@ int ScriptParser::savedirCommand()
         // a workaround not to overwrite save_dir given in command line options
         save_dir = new char[ strlen(archive_path) + strlen(path) + 2 ];
         sprintf( save_dir, "%s%s%c", archive_path, path, DELIMITER );
-
-#if defined(LINUX) || defined(MACOSX) || defined(IOS)
-        struct stat buf;
-        if ( stat( save_dir, &buf ) != 0 ){
-            fprintf(stderr, "savedir: %s doesn't exist.\n", save_dir);
-            delete[] save_dir;
-            save_dir = NULL;
-        
-            return RET_CONTINUE;
-        }
-#endif
-        
         script_h.setSaveDir(save_dir);
         setStr(&save_dir_envdata, path);
     }
@@ -453,14 +392,19 @@ int ScriptParser::returnCommand()
         setCurrentLabel( label+1 );
 
     bool textgosub_flag = last_nest_info->textgosub_flag;
+    char *wait_script = last_nest_info->wait_script;
 
     last_nest_info = last_nest_info->previous;
     delete last_nest_info->next;
     last_nest_info->next = NULL;
     
-    // if this is the end of the line, pretext becomes enabled
-    if (textgosub_flag &&
-        (textgosub_clickstr_state & (CLICK_NEWPAGE | CLICK_EOL))){
+    if (textgosub_flag){
+        if (wait_script && label[0] != '*'){
+            script_h.setCurrent(wait_script);
+            return RET_CONTINUE;
+        }
+
+        // if this is the end of the line, pretext becomes enabled
         line_enter_status = 0;
         page_enter_status = 0;
     }
@@ -528,7 +472,7 @@ int ScriptParser::nsaCommand()
     delete script_h.cBR;
     script_h.cBR = new NsaReader( nsa_offset, archive_path, BaseReader::ARCHIVE_TYPE_NSA|BaseReader::ARCHIVE_TYPE_NS2, key_table );
     if ( script_h.cBR->open( nsa_path ) ){
-        utils::printError(" *** failed to open nsa or ns2 archive, ignored.  ***\n");
+        fprintf( stderr, " *** failed to open nsa or ns2 archive, ignored.  ***\n");
     }
 
     return RET_CONTINUE;
@@ -609,15 +553,6 @@ int ScriptParser::movCommand()
         setStr( &script_h.getVariableData(script_h.pushed_variable.var_no).str, buf );
     }
     else errorAndExit( "mov: no variable" );
-    
-    return RET_CONTINUE;
-}
-
-int ScriptParser::mode_wave_demoCommand()
-{
-    if (current_mode != DEFINE_MODE)
-        errorAndExit("mode_wave_demo: not in the define section");
-    mode_wave_demo_flag = true;
     
     return RET_CONTINUE;
 }
@@ -840,6 +775,7 @@ int ScriptParser::labellogCommand()
 int ScriptParser::kidokuskipCommand()
 {
     kidokuskip_flag = true;
+    kidokumode_flag = true;
     script_h.loadKidokuData();
     
     return RET_CONTINUE;
@@ -903,7 +839,7 @@ int ScriptParser::incCommand()
 
 int ScriptParser::ifCommand()
 {
-    //utils::printInfo("ifCommand\n");
+    //printf("ifCommand\n");
     int condition_status = 0; // 0 ... none, 1 ... and, 2 ... or
     bool f = false, condition_flag = false;
     char *op_buf;
@@ -917,20 +853,20 @@ int ScriptParser::ifCommand()
             script_h.readLabel();
             buf = script_h.readStr();
             f = (script_h.findAndAddLog( script_h.log_info[ScriptHandler::FILE_LOG], buf, false ) != NULL);
-            //utils::printInfo("fchk %s(%d) ", tmp_string_buffer, (findAndAddFileLog( tmp_string_buffer, fasle )) );
+            //printf("fchk %s(%d) ", tmp_string_buffer, (findAndAddFileLog( tmp_string_buffer, fasle )) );
         }
         else if (script_h.compareString("lchk")){
             script_h.readLabel();
             buf = script_h.readStr();
             f = (script_h.findAndAddLog( script_h.log_info[ScriptHandler::LABEL_LOG], buf+1, false ) != NULL);
-            //utils::printInfo("lchk %s (%d)\n", buf, f );
+            //printf("lchk %s (%d)\n", buf, f );
         }
         else{
             int no = script_h.readInt();
             if (script_h.current_variable.type & ScriptHandler::VAR_INT ||
                 script_h.current_variable.type & ScriptHandler::VAR_ARRAY){
                 int left_value = no;
-                //utils::printInfo("left (%d) ", left_value );
+                //printf("left (%d) ", left_value );
 
                 op_buf = script_h.getNext();
                 if ( (op_buf[0] == '>' && op_buf[1] == '=') ||
@@ -943,10 +879,10 @@ int ScriptParser::ifCommand()
                           op_buf[0] == '>' ||
                           op_buf[0] == '=' )
                     script_h.setCurrent(op_buf+1);
-                //utils::printInfo("current %c%c ", op_buf[0], op_buf[1] );
+                //printf("current %c%c ", op_buf[0], op_buf[1] );
 
                 int right_value = script_h.readInt();
-                //utils::printInfo("right (%d) ", right_value );
+                //printf("right (%d) ", right_value );
 
                 if      (op_buf[0] == '>' && op_buf[1] == '=') f = (left_value >= right_value);
                 else if (op_buf[0] == '<' && op_buf[1] == '=') f = (left_value <= right_value);
@@ -1041,7 +977,12 @@ void ScriptParser::gosubReal( const char *label, char *next_script, bool textgos
 
     last_nest_info = last_nest_info->next;
     last_nest_info->next_script = next_script;
-    last_nest_info->textgosub_flag = textgosub_flag;
+    pretext_buf = &last_nest_info->next_script;
+
+    if (textgosub_flag){
+        last_nest_info->textgosub_flag = true;
+        last_nest_info->wait_script = script_h.getWait();
+    }
 
     setCurrentLabel( label );
 }
@@ -1412,16 +1353,6 @@ int ScriptParser::breakCommand()
     return RET_CONTINUE;
 }
 
-int ScriptParser::autosaveoffCommand()
-{
-    if ( current_mode != DEFINE_MODE )
-        errorAndExit( "autosaveoff: not in the define section" );
-
-    autosaveoff_flag = true;
-    
-    return RET_CONTINUE;
-}
-
 int ScriptParser::atoiCommand()
 {
     script_h.readInt();
@@ -1448,12 +1379,12 @@ int ScriptParser::arcCommand()
         delete script_h.cBR;
         script_h.cBR = new SarReader( archive_path, key_table );
         if ( script_h.cBR->open( buf2 ) ){
-            utils::printError( " *** failed to open archive %s, ignored.  ***\n", buf2 );
+            fprintf( stderr, " *** failed to open archive %s, ignored.  ***\n", buf2 );
         }
     }
     else if ( strcmp( script_h.cBR->getArchiveName(), "sar" ) == 0 ){
         if ( script_h.cBR->open( buf2 ) ){
-            utils::printError( " *** failed to open archive %s, ignored.  ***\n", buf2 );
+            fprintf( stderr, " *** failed to open archive %s, ignored.  ***\n", buf2 );
         }
     }
     // skip "arc" commands after "ns?" command

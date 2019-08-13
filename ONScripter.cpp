@@ -1,9 +1,8 @@
 /* -*- C++ -*-
- *
+ * 
  *  ONScripter.cpp - Execution block parser of ONScripter
  *
- *  Copyright (c) 2001-2016 Ogapee. All rights reserved.
- *            (C) 2014-2019 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -23,25 +22,19 @@
  */
 
 #include "ONScripter.h"
-#include "Utils.h"
-#include "coding2utf16.h"
 #ifdef USE_FONTCONFIG
 #include <fontconfig/fontconfig.h>
 #endif
-#ifdef USE_SIMD
-#include "simd/simd.h"
-#endif
-#include <stdlib.h>
 
-extern Coding2UTF16 *coding2utf16;
-extern "C" void waveCallback(int channel);
+extern void initSJIS2UTF16();
+extern "C" void waveCallback( int channel );
 
 #define DEFAULT_AUDIOBUF  4096
 
 #define FONT_FILE "default.ttf"
 #define REGISTRY_FILE "registry.txt"
 #define DLL_FILE "dll.txt"
-#define DEFAULT_ENV_FONT "ËÎÌå"
+#define DEFAULT_ENV_FONT "‚l‚r ƒSƒVƒbƒN"
 #define DEFAULT_AUTOMODE_TIME 1000
 
 #ifdef __OS2__
@@ -51,100 +44,85 @@ static void SDL_Quit_Wrapper()
 }
 #endif
 
-void ONScripter::calcRenderRect() {
-    int vieww, viewh;
-    int renderw, renderh;
-    SDL_GetRendererOutputSize(renderer, &renderw, &renderh);
-    int swdh = screen_width * renderh;
-    int dwsh = renderw * screen_height;
-    if (swdh == dwsh) {
-        vieww = renderw;
-        viewh = renderh;
-    }
-    else if (swdh > dwsh) {
-        vieww = renderw;
-        viewh = (int)ceil(screen_height * ((float)renderw / screen_width));
-    }
-    else {
-        vieww = (int)ceil(screen_width * ((float)renderh / screen_height));
-        viewh = renderh;
-    }
-    render_view_rect.x = (renderw - vieww) / 2;
-    render_view_rect.y = (renderh - viewh) / 2;
-    render_view_rect.w = vieww;
-    render_view_rect.h = viewh;
-}
-
-void ONScripter::setCaption(const char *title, const char *iconstr) {
-    SDL_SetWindowTitle(window, title);
-}
-
-void ONScripter::setScreenDirty(bool screen_dirty)
-{
-    screen_dirty_flag = screen_dirty;
-}
-
-void ONScripter::setDebugLevel(int debug) {
-    debug_level = debug;
-}
-
 void ONScripter::initSDL()
 {
     /* ---------------------------------------- */
     /* Initialize SDL */
 
     if ( SDL_Init( SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_AUDIO ) < 0 ){
-        utils::printError("Couldn't initialize SDL: %s\n", SDL_GetError());
+        fprintf( stderr, "Couldn't initialize SDL: %s\n", SDL_GetError() );
         exit(-1);
     }
 
+#ifdef __OS2__
+    atexit(SDL_Quit_Wrapper); // work-around for OS/2
+#endif
+
 #ifdef USE_CDROM
     if( cdaudio_flag && SDL_InitSubSystem( SDL_INIT_CDROM ) < 0 ){
-        utils::printError("Couldn't initialize CD-ROM: %s\n", SDL_GetError());
+        fprintf( stderr, "Couldn't initialize CD-ROM: %s\n", SDL_GetError() );
         exit(-1);
     }
 #endif
 
 #if !defined(IOS)
-#if defined(ANDROID)
-    SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
-#endif
     if(SDL_InitSubSystem( SDL_INIT_JOYSTICK ) == 0 && SDL_JoystickOpen(0) != NULL)
-        utils::printInfo("Initialize JOYSTICK\n");
+        printf( "Initialize JOYSTICK\n");
+#endif
+    
+#if defined(PSP) || defined(IPODLINUX) || defined(GP2X) || defined(WINCE)
+    SDL_ShowCursor(SDL_DISABLE);
 #endif
 
     /* ---------------------------------------- */
     /* Initialize SDL */
     if ( TTF_Init() < 0 ){
-        utils::printError("can't initialize SDL TTF\n");
+        fprintf( stderr, "can't initialize SDL TTF\n");
         exit(-1);
     }
 
+#if defined(BPP16)
+    screen_bpp = 16;
+#else
     screen_bpp = 32;
+#endif
     
-#if (defined(IOS) || defined(ANDROID) || defined(WINRT))
-    SDL_DisplayMode mode;
-    SDL_GetDisplayMode(0, 0, &mode);
-    int width;
-    if (mode.w * screen_height > mode.h * screen_width)
-        width = (mode.h*screen_width / screen_height) & (~0x01); // to be 2 bytes aligned
-    else
-        width = mode.w;
-    screen_width = width;
+#if defined(PDA_WIDTH)
+    screen_ratio1 = PDA_WIDTH;
+    screen_ratio2 = script_h.screen_width;
+    screen_width  = PDA_WIDTH;
+#elif defined(PDA_AUTOSIZE)
+    SDL_Rect **modes;
+    modes = SDL_ListModes(NULL, SDL_FULLSCREEN);
+    if (modes == (SDL_Rect **)0){
+        fprintf(stderr, "No Video mode available.\n");
+        exit(-1);
+    }
+    else if (modes == (SDL_Rect **)-1){
+        // no restriction
+    }
+ 	else{
+        int width;
+        if (modes[0]->w * screen_height > modes[0]->h * screen_width)
+            width = (modes[0]->h*screen_width/screen_height) & (~0x01); // to be 2 bytes aligned
+        else
+            width = modes[0]->w;
+        screen_ratio1 = width;
+        screen_ratio2 = script_h.screen_width;
+        screen_width  = width;
+    }
 #endif
 
     screen_height = screen_width*script_h.screen_height/script_h.screen_width;
 
     screen_device_width  = screen_width;
     screen_device_height = screen_height;
-
+#if defined(USE_SDL_RENDERER)
     // use hardware scaling
     screen_ratio1 = 1;
     screen_ratio2 = 1;
     screen_width  = script_h.screen_width;
     screen_height = script_h.screen_height;
-    screen_scale_ratio1 = (float)screen_width / screen_device_width;
-    screen_scale_ratio2 = (float)screen_height / screen_device_height;
 
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
@@ -154,67 +132,82 @@ void ONScripter::initSDL()
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 
-#if defined(_WIN32) || defined(WIN32)
-    int window_flag = SDL_WINDOW_SHOWN;
-#elif defined(MACOSX) || (defined(LINUX) && !defined(ANDROID))
-    int window_flag = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN;
-#else
-    int window_flag = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS;
-#endif //_WIN32
-#if SDL_VERSION_ATLEAST(2,0,1)
-    window_flag |= SDL_WINDOW_ALLOW_HIGHDPI;
-#endif
-
-    int window_x = SDL_WINDOWPOS_UNDEFINED, window_y = SDL_WINDOWPOS_UNDEFINED;
-
-    window = SDL_CreateWindow(NULL, window_x, window_y, screen_device_width, screen_device_height, window_flag);
-    if (window == NULL) {
-        utils::printError("Could not create window: %s\n", SDL_GetError());
-        exit(-1);
-    }
+    window = SDL_CreateWindow(NULL, 0, 0, screen_device_width, screen_device_height, SDL_WINDOW_OPENGL|SDL_WINDOW_SHOWN|SDL_WINDOW_BORDERLESS);
     SDL_GetWindowSize(window, &device_width, &device_height);
-    Uint32 render_flag = SDL_RENDERER_ACCELERATED;
-    if (vsync) render_flag |= SDL_RENDERER_PRESENTVSYNC;
-    renderer = SDL_CreateRenderer(window, -1, render_flag);
-
-    SDL_RenderSetLogicalSize(renderer, screen_width, screen_height);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-
-    calcRenderRect();
+    renderer = SDL_CreateRenderer(window, -1, 0);
     texture_format = SDL_PIXELFORMAT_ARGB8888;
     SDL_RendererInfo info;
     SDL_GetRendererInfo(renderer, &info);
     if (info.texture_formats[0] == SDL_PIXELFORMAT_ABGR8888)
         texture_format = SDL_PIXELFORMAT_ABGR8888;
-    max_texture_width = info.max_texture_width;
-    max_texture_height = info.max_texture_height;
     SDL_RenderClear(renderer);
+#else
+#if defined(ANDROID)
+    // use hardware scaling
+    screen_ratio1 = 1;
+    screen_ratio2 = 1;
+    screen_width  = script_h.screen_width;
+    screen_height = script_h.screen_height;
+#endif
+    screen_surface = SDL_SetVideoMode( screen_width, screen_height, screen_bpp, DEFAULT_VIDEO_SURFACE_FLAG|(fullscreen_mode?SDL_FULLSCREEN:0) );
+#ifdef BPP16
+    texture_format = SDL_PIXELFORMAT_RGB565;
+#else
+#if defined(ANDROID)
+    SDL_SetSurfaceBlendMode(screen_surface, SDL_BLENDMODE_NONE);
+    texture_format = SDL_PIXELFORMAT_ABGR8888;
+#else
+    texture_format = SDL_PIXELFORMAT_ARGB8888;
+#endif
+#endif
+#endif
 
+    /* ---------------------------------------- */
+    /* Check if VGA screen is available. */
+#if !defined(USE_SDL_RENDERER) && (PDA_WIDTH==640)
+    if ( screen_surface == NULL ){
+        screen_ratio1 /= 2;
+        screen_width  /= 2;
+        screen_height /= 2;
+        screen_device_width  = screen_width;
+        screen_device_height = screen_height;
+        screen_surface = SDL_SetVideoMode( screen_device_width, screen_device_height, screen_bpp, DEFAULT_VIDEO_SURFACE_FLAG|(fullscreen_mode?SDL_FULLSCREEN:0) );
+    }
+#endif
     underline_value = script_h.screen_height;
 
-    utils::printInfo("Display: %d x %d (%d bpp)\n", screen_width, screen_height, screen_bpp);
+#ifndef USE_SDL_RENDERER
+    if ( screen_surface == NULL ) {
+        fprintf( stderr, "Couldn't set %dx%dx%d video mode: %s\n",
+                 screen_width, screen_height, screen_bpp, SDL_GetError() );
+        exit(-1);
+    }
+#endif
+    printf("Display: %d x %d (%d bpp)\n", screen_width, screen_height, screen_bpp);
     dirty_rect.setDimension(screen_width, screen_height);
     
     screen_rect.x = screen_rect.y = 0;
     screen_rect.w = screen_width;
     screen_rect.h = screen_height;
 
-    coding2utf16->init();
+    initSJIS2UTF16();
     
     wm_title_string = new char[ strlen(DEFAULT_WM_TITLE) + 1 ];
     memcpy( wm_title_string, DEFAULT_WM_TITLE, strlen(DEFAULT_WM_TITLE) + 1 );
     wm_icon_string = new char[ strlen(DEFAULT_WM_ICON) + 1 ];
     memcpy( wm_icon_string, DEFAULT_WM_TITLE, strlen(DEFAULT_WM_ICON) + 1 );
-    setCaption(wm_title_string, wm_icon_string);
+    SDL_WM_SetCaption( wm_title_string, wm_icon_string );
 }
 
-void ONScripter::openAudio(int freq)
+void ONScripter::openAudio()
 {
-    Mix_CloseAudio();
-
-    if ( Mix_OpenAudio( (freq<0)?44100:freq, MIX_DEFAULT_FORMAT, MIX_DEFAULT_CHANNELS, DEFAULT_AUDIOBUF ) < 0 ){      
-        utils::printError("Couldn't open audio device!\n"
-            "  reason: [%s].\n", SDL_GetError());
+#if (defined(PDA_WIDTH) || defined(PDA_AUTOSIZE)) && !defined(PSP) && !defined(IPHONE) && !defined(IOS) && !defined(PANDORA)
+    if ( Mix_OpenAudio( 22050, MIX_DEFAULT_FORMAT, MIX_DEFAULT_CHANNELS, DEFAULT_AUDIOBUF ) < 0 ){
+#else        
+    if ( Mix_OpenAudio( 44100, MIX_DEFAULT_FORMAT, MIX_DEFAULT_CHANNELS, DEFAULT_AUDIOBUF ) < 0 ){
+#endif        
+        fprintf(stderr, "Couldn't open audio device!\n"
+                "  reason: [%s].\n", SDL_GetError());
         audio_open_flag = false;
     }
     else{
@@ -223,9 +216,9 @@ void ONScripter::openAudio(int freq)
         int channels;
 
         Mix_QuerySpec( &freq, &format, &channels);
-        utils::printInfo("Audio: %d Hz %d bit %s\n", freq,
-            (format & 0xFF),
-            (channels > 1) ? "stereo" : "mono");
+        printf("Audio: %d Hz %d bit %s\n", freq,
+               (format&0xFF),
+               (channels > 1) ? "stereo" : "mono");
         audio_format.format = format;
         audio_format.freq = freq;
         audio_format.channels = channels;
@@ -257,18 +250,14 @@ ONScripter::ONScripter()
     window_mode = false;
     sprite_info  = new AnimationInfo[MAX_SPRITE_NUM];
     sprite2_info = new AnimationInfo[MAX_SPRITE2_NUM];
-    texture_info = new AnimationInfo[MAX_TEXTURE_NUM];
-    smpeg_info = NULL;
     current_button_state.down_flag = false;
-    compatibilityMode = false;
-    vsync = true;
 
     int i;
     for (i=0 ; i<MAX_SPRITE2_NUM ; i++)
         sprite2_info[i].affine_flag = true;
 
     // External Players
-#if defined(WINCE) || defined(WINRT)
+#if defined(WINCE)
     midi_cmd  = NULL;
 #else
     midi_cmd  = getenv("MUSIC_CMD");
@@ -334,20 +323,6 @@ void ONScripter::setWindowMode()
     window_mode = true;
 }
 
-void ONScripter::setCompatibilityMode()
-{
-    compatibilityMode = true;
-}
-
-void ONScripter::setVsyncOff() {
-    vsync = false;
-}
-
-void ONScripter::setFontCache()
-{
-    cacheFont = true;
-}
-
 void ONScripter::enableButtonShortCut()
 {
     force_button_shortcut_flag = true;
@@ -368,7 +343,7 @@ void ONScripter::renderFontOutline()
 #if (SDL_TTF_MAJOR_VERSION>=2) && (SDL_TTF_MINOR_VERSION>=0) && (SDL_TTF_PATCHLEVEL>=10)
     render_font_outline = true;
 #else
-    utils::printError("--render-font-outline is not supported with SDL_ttf %d.%d.%d\n", SDL_TTF_MAJOR_VERSION, SDL_TTF_MINOR_VERSION, SDL_TTF_PATCHLEVEL);
+    fprintf(stderr, "--render-font-outline is not supported with SDL_ttf %d.%d.%d\n", SDL_TTF_MAJOR_VERSION, SDL_TTF_MINOR_VERSION, SDL_TTF_PATCHLEVEL);
 #endif
 }
 
@@ -410,16 +385,19 @@ int ONScripter::init()
     backup_surface       = AnimationInfo::allocSurface( screen_width, screen_height, texture_format );
     effect_src_surface   = AnimationInfo::allocSurface( screen_width, screen_height, texture_format );
     effect_dst_surface   = AnimationInfo::allocSurface( screen_width, screen_height, texture_format );
-    effect_tmp_surface = AnimationInfo::allocSurface(screen_width, screen_height, texture_format);
-    blt_texture = NULL;
 
-    screenshot_surface = NULL;
+#if defined(USE_SDL_RENDERER)
+    screenshot_surface = AnimationInfo::alloc32bitSurface( screen_device_width, screen_device_height, texture_format );
+#else
+    screenshot_surface = AnimationInfo::alloc32bitSurface( screen_width, screen_height, texture_format );
+#endif
     screenshot_w = screen_width;
     screenshot_h = screen_height;
 
-    texture = SDL_CreateTexture(renderer, texture_format, SDL_TEXTUREACCESS_STREAMING, accumulation_surface->w, accumulation_surface->h); 
+#ifdef USE_SDL_RENDERER
+    texture = SDL_CreateTextureFromSurface(renderer, accumulation_surface);
+#endif    
 
-    effect_tmp = 0;
     tmp_image_buf = NULL;
     tmp_image_buf_length = 0;
     mean_size_of_loaded_images = 0;
@@ -460,7 +438,7 @@ int ONScripter::init()
                 delete[] font_file;
                 font_file = new char[ strlen((const char*)val_s) + 1 ];
                 strcpy( font_file, (const char*)val_s );
-                utils::printInfo("Font: %s\n", font_file);
+                printf("Font: %s\n", font_file);
             }
             FcPatternDestroy( p_pat );
         }
@@ -479,10 +457,10 @@ int ONScripter::init()
         if ( cdrom_drive_number >= 0 && cdrom_drive_number < SDL_CDNumDrives() )
             cdrom_info = SDL_CDOpen( cdrom_drive_number );
         if ( !cdrom_info ){
-            utils::printError("Couldn't open default CD-ROM: %s\n", SDL_GetError());
+            fprintf(stderr, "Couldn't open default CD-ROM: %s\n", SDL_GetError());
         }
         else if ( cdrom_info && !CD_INDRIVE( SDL_CDStatus( cdrom_info ) ) ) {
-            utils::printError("no CD-ROM in the drive\n");
+            fprintf( stderr, "no CD-ROM in the drive\n" );
             SDL_CDClose( cdrom_info );
             cdrom_info = NULL;
         }
@@ -493,15 +471,8 @@ int ONScripter::init()
     midi_file_name = NULL;
     midi_info  = NULL;
     music_file_name = NULL;
-    fadeout_music_file_name = NULL;
     music_buffer = NULL;
     music_info = NULL;
-
-    layer_smpeg_buffer = NULL;
-    layer_smpeg_loop_flag = false;
-#if defined(USE_SMPEG)
-    layer_smpeg_sample = NULL;
-#endif
 
     loop_bgm_name[0] = NULL;
     loop_bgm_name[1] = NULL;
@@ -528,23 +499,8 @@ int ONScripter::init()
 
     readToken();
 
-    if (cacheFont) {
-        SDL_RWops *fontfp = SDL_RWFromFile(font_file, "rb");
-        if (fontfp == NULL) {
-            utils::printError("can't open font file: %s\n", font_file);
-            return -1;
-        }
-        int size = fontfp->size(fontfp);
-        font_cache = malloc(size);
-        fontfp->read(fontfp, font_cache, 1, size);
-        fontfp->close(fontfp);
-        FontInfo::cache_font_file = font_file;
-        FontInfo::font_cache = font_cache;
-        FontInfo::font_cache_size = size;
-    }
-
     if ( sentence_font.openFont( font_file, screen_ratio1, screen_ratio2 ) == NULL ){
-        utils::printError("can't open font file: %s\n", font_file);
+        fprintf( stderr, "can't open font file: %s\n", font_file );
         return -1;
     }
     
@@ -582,9 +538,8 @@ void ONScripter::reset()
         resize_buffer_size = 16;
     }
 
-    current_over_button = -1;
+    current_over_button = 0;
     shift_over_button = -1;
-    current_button_link = NULL;
     num_fingers = 0;
     variable_edit_mode = NOT_EDIT_MODE;
 
@@ -611,8 +566,6 @@ void ONScripter::reset()
     current_cd_track = -1;
     
     resetSub();
-    if (blt_texture != NULL) SDL_DestroyTexture(blt_texture);
-    blt_texture = NULL;
 }
 
 void ONScripter::resetSub()
@@ -638,7 +591,7 @@ void ONScripter::resetSub()
     internal_saveon_flag = true;
 
     is_kinsoku = true;
-
+    textgosub_clickstr_state = CLICK_NONE;
     indent_offset = 0;
     line_enter_status = 0;
     page_enter_status = 0;
@@ -655,8 +608,6 @@ void ONScripter::resetSub()
     stopAllDWAVE();
     setStr(&loop_bgm_name[1], NULL);
 
-    stopSMPEG();
-
     // ----------------------------------------
     // reset AnimationInfo
     btndef_info.reset();
@@ -666,8 +617,6 @@ void ONScripter::resetSub()
     for (i=0 ; i<3 ; i++) tachi_info[i].reset();
     for (i=0 ; i<MAX_SPRITE_NUM ; i++) sprite_info[i].reset();
     for (i=0 ; i<MAX_SPRITE2_NUM ; i++) sprite2_info[i].reset();
-    for (i=0; i<MAX_TEXTURE_NUM; i++) texture_info[i].reset();
-    smpeg_info = NULL;
     barclearCommand();
     prnumclearCommand();
     for (i=0 ; i<2 ; i++) cursor_info[i].reset();
@@ -698,8 +647,8 @@ void ONScripter::resetSentenceFont()
     sentence_font_info.scalePosXY( screen_ratio1, screen_ratio2 );
     sentence_font_info.scalePosWH( screen_ratio1, screen_ratio2 );
 
-    sentence_font.old_xy[0] = sentence_font.x(false);
-    sentence_font.old_xy[1] = sentence_font.y(false);
+    sentence_font.old_xy[0] = sentence_font.x();
+    sentence_font.old_xy[1] = sentence_font.y();
 }
 
 void ONScripter::flush( int refresh_mode, SDL_Rect *rect, bool clear_dirty_flag, bool direct_flag )
@@ -719,39 +668,26 @@ void ONScripter::flush( int refresh_mode, SDL_Rect *rect, bool clear_dirty_flag,
 
 void ONScripter::flushDirect( SDL_Rect &rect, int refresh_mode )
 {
-    //utils::printInfo("flush %d: %d %d %d %d\n", refresh_mode, rect.x, rect.y, rect.w, rect.h );
+    //printf("flush %d: %d %d %d %d\n", refresh_mode, rect.x, rect.y, rect.w, rect.h );
     
-    SDL_Rect dst_rect = rect;
-    --dst_rect.x; --dst_rect.y; dst_rect.w += 2; dst_rect.h += 2;
-    if (AnimationInfo::doClipping(&dst_rect, &screen_rect) || (dst_rect.w == 2 && dst_rect.h == 2)) return;
-    refreshSurface(accumulation_surface, &rect, refresh_mode);
-    SDL_LockSurface(accumulation_surface);
-    SDL_UpdateTexture(texture, &rect, (unsigned char*)accumulation_surface->pixels+accumulation_surface->pitch*rect.y+rect.x*sizeof(ONSBuf), accumulation_surface->pitch);
-    SDL_UnlockSurface(accumulation_surface);
-
-    screen_dirty_flag = false;
-    #ifdef ANDROID      
-        if (compatibilityMode) {
-            SDL_RenderClear(renderer);
-        }
-        SDL_RenderCopy(renderer, texture, NULL, NULL);
-    #else
-        SDL_RenderCopy(renderer, texture, &dst_rect, &dst_rect);
-    #endif
-    SDL_RenderPresent(renderer);
-}
-
-#ifdef USE_SMPEG
-void ONScripter::flushDirectYUV(SDL_Overlay *overlay)
-{
+    refreshSurface( accumulation_surface, &rect, refresh_mode );
+#ifdef USE_SDL_RENDERER
+    SDL_Rect src_rect = {0, 0, screen_width, screen_height};
     SDL_Rect dst_rect = {(device_width -screen_device_width )/2, 
                          (device_height-screen_device_height)/2,
                          screen_device_width, screen_device_height};
-    SDL_UpdateTexture(texture, &screen_rect, overlay->pixels[0], overlay->pitches[0]);
-    SDL_RenderCopy(renderer, texture, &screen_rect, &dst_rect);
-    SDL_RenderPresent(renderer);  
-}
+    SDL_LockSurface(accumulation_surface);
+    SDL_UpdateTexture(texture, &rect, (unsigned char*)accumulation_surface->pixels+accumulation_surface->pitch*rect.y+rect.x*sizeof(ONSBuf), accumulation_surface->pitch);
+    SDL_UnlockSurface(accumulation_surface);
+    SDL_RenderCopy(renderer, texture, &src_rect, &dst_rect);
+    SDL_RenderPresent(renderer);
+#else
+    SDL_Rect dst_rect = rect;
+    if (AnimationInfo::doClipping(&dst_rect, &screen_rect) || (dst_rect.w==0 && dst_rect.h==0)) return;
+    SDL_BlitSurface( accumulation_surface, &dst_rect, screen_surface, &dst_rect );
+    SDL_UpdateRect( screen_surface, dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h );
 #endif
+}
 
 void ONScripter::mouseOverCheck( int x, int y )
 {
@@ -762,7 +698,7 @@ void ONScripter::mouseOverCheck( int x, int y )
 
     /* ---------------------------------------- */
     /* Check button */
-    int button = -1;
+    int button = 0;
     ButtonLink *bl = root_button_link.next, *max_bl = NULL;
     unsigned int max_alpha = 0;
     while( bl ){
@@ -801,17 +737,16 @@ void ONScripter::mouseOverCheck( int x, int y )
 
         SDL_Rect check_src_rect = {0, 0, 0, 0};
         SDL_Rect check_dst_rect = {0, 0, 0, 0};
-        if ( current_over_button != -1 ){
+        if ( current_over_button != 0 ){
             ButtonLink *cbl = current_button_link;
             cbl->show_flag = 0;
             check_src_rect = cbl->image_rect;
             if ( cbl->button_type == ButtonLink::SPRITE_BUTTON ){
+                sprite_info[ cbl->sprite_no ].visible = true;
                 if ( cbl->exbtn_ctl[0] )
                     decodeExbtnControl( cbl->exbtn_ctl[0], &check_src_rect, &check_dst_rect );
-                else{
-                    sprite_info[ cbl->sprite_no ].visible = true;
+                else
                     sprite_info[ cbl->sprite_no ].setCell(0);
-                }
             }
             else if ( cbl->button_type == ButtonLink::TMP_SPRITE_BUTTON ){
                 cbl->show_flag = 1;
@@ -841,12 +776,11 @@ void ONScripter::mouseOverCheck( int x, int y )
             }
             check_dst_rect = bl->image_rect;
             if ( bl->button_type == ButtonLink::SPRITE_BUTTON ){
-                if (!bexec_flag || !bl->exbtn_ctl[1]){
-                    sprite_info[ bl->sprite_no ].visible = true;
-                    sprite_info[ bl->sprite_no ].setCell(1);
-                }
+                sprite_info[ bl->sprite_no ].setCell(1);
                 if ( bl->exbtn_ctl[1] )
                     decodeExbtnControl( bl->exbtn_ctl[1], &check_src_rect, &check_dst_rect );
+                else
+                    sprite_info[ bl->sprite_no ].visible = true;
             }
             else if ( bl->button_type == ButtonLink::TMP_SPRITE_BUTTON ){
                 bl->show_flag = 1;
@@ -870,32 +804,18 @@ void ONScripter::mouseOverCheck( int x, int y )
     shift_over_button = -1;
 }
 
-void ONScripter::warpMouse(int x, int y) {
-    SDL_WarpMouseInWindow(NULL, x, y);
-}
-
-void ONScripter::setFullScreen(bool fullscreen) {
-    if (fullscreen != fullscreen_mode) {
-        SDL_SetWindowFullscreen(window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
-        SDL_GetWindowSize(window, &device_width, &device_height);
-        calcRenderRect();
-        flushDirect(screen_rect, refreshMode());
-        fullscreen_mode = fullscreen;
-    }
-}
-
 void ONScripter::executeLabel()
 {
   executeLabelTop:    
 
     while ( current_line<current_label_info.num_of_lines ){
         if ( debug_level > 0 )
-            utils::printInfo("*****  executeLabel %s:%d/%d:%d:%d *****\n",
-                current_label_info.name,
-                current_line,
-                current_label_info.num_of_lines,
-                string_buffer_offset, display_mode);
-
+            printf("*****  executeLabel %s:%d/%d:%d:%d *****\n",
+                   current_label_info.name,
+                   current_line,
+                   current_label_info.num_of_lines,
+                   string_buffer_offset, display_mode );
+        
         if ( script_h.getStringBuffer()[0] == '~' ){
             last_tilde.next_script = script_h.getNext();
             readToken();
@@ -934,7 +854,7 @@ void ONScripter::executeLabel()
         goto executeLabelTop;
     }
     
-    utils::printError(" ***** End *****\n");
+    fprintf( stderr, " ***** End *****\n");
     endCommand();
 }
 
@@ -946,7 +866,7 @@ void ONScripter::runScript()
 
 int ONScripter::parseLine( )
 {
-    if (debug_level > 0) utils::printInfo("ONScripter::Parseline %s\n", script_h.getStringBuffer());
+    if (debug_level > 0) printf("ONScripter::Parseline %s\n", script_h.getStringBuffer() );
 
     const char *cmd = script_h.getStringBuffer();
     if      (cmd[0] == ';') return RET_CONTINUE;
@@ -1000,7 +920,7 @@ int ONScripter::parseLine( )
     else if ( cmd[0] == 'd' && cmd[1] == 'v' && cmd[2] >= '0' && cmd[2] <= '9' )
         return dvCommand();
 
-    utils::printError(" command [%s] is not supported yet!!\n", cmd);
+    fprintf( stderr, " command [%s] is not supported yet!!\n", cmd );
 
     script_h.skipToken();
 
@@ -1015,7 +935,7 @@ void ONScripter::deleteButtonLink()
     while( b1 ){
         ButtonLink *b2 = b1;
         b1 = b1->next;
-        if (b2 == current_button_link) current_over_button = -1;
+        if (b2 == current_button_link) current_over_button = 0;
         delete b2;
     }
     root_button_link.next = NULL;
@@ -1032,14 +952,10 @@ void ONScripter::deleteButtonLink()
 void ONScripter::refreshMouseOverButton()
 {
     int mx, my;
-    current_over_button = -1;
+    current_over_button = 0;
     shift_over_button = -1;
     current_button_link = root_button_link.next;
     SDL_GetMouseState( &mx, &my );
-    if (!(SDL_GetWindowFlags(window) & SDL_WINDOW_MOUSE_FOCUS)) {
-        mx = screen_device_width;
-        my = screen_device_height;
-    }
     mx = mx * screen_width / screen_device_width;
     my = my * screen_width / screen_device_width;
     mouseOverCheck( mx, my );
@@ -1108,40 +1024,16 @@ void ONScripter::shadowTextDisplay( SDL_Surface *surface, SDL_Rect &clip )
 
         SDL_PixelFormat *fmt = surface->format;
         int color[3];
-        color[0] = current_font->window_color[0];
-        color[1] = current_font->window_color[1];
-        color[2] = current_font->window_color[2];
+        color[0] = current_font->window_color[0] + 1;
+        color[1] = current_font->window_color[1] + 1;
+        color[2] = current_font->window_color[2] + 1;
+
         for ( int i=rect.y ; i<rect.y + rect.h ; i++ ){
-#ifdef USE_SIMD
-            int remain = rect.w;
-            using namespace simd;
-            Uint32 mask = (color[0] << fmt->Rshift) | (color[1] << fmt->Gshift) | (color[2] << fmt->Bshift);
-            ivec128 zero = ivec128::zero();
-            uint8x8 maskv = uint32x2(mask).cvt2vu8();
-            uint16x8 maskwv = widen(maskv, zero);
-            while (remain >= 4) {
-                uint8x16 bufv = load_u(buf);
-                uint16x8 bufwv_lo = widen_lo(bufv, zero), bufwv_hi = widen_hi(bufv, zero);
-                bufwv_lo = (bufwv_lo * maskwv) >> immint<8>();
-                bufwv_hi = (bufwv_hi * maskwv) >> immint<8>();
-                bufv = pack_hz(bufwv_lo, bufwv_hi);
-                store_u(buf, bufv);
-                remain -= 4; buf += 4;
-            }
-            while (remain > 0) {
-                uint8x4 bufv = load(buf);
-                uint16x4 bufwv = widen(bufv, zero);
-                bufwv = (bufwv * maskwv.lo()) >> immint<8>();
-                *buf = uint8x4::cvt2i32(narrow_hz(bufwv));
-                --remain; ++buf;
-            }
-#else
             for ( int j=rect.x ; j<rect.x + rect.w ; j++, buf++ ){
                 *buf = (((*buf & fmt->Rmask) >> fmt->Rshift) * color[0] >> 8) << fmt->Rshift |
                     (((*buf & fmt->Gmask) >> fmt->Gshift) * color[1] >> 8) << fmt->Gshift |
                     (((*buf & fmt->Bmask) >> fmt->Bshift) * color[2] >> 8) << fmt->Bshift;
             }
-#endif
             buf += surface->w - rect.w;
         }
 
@@ -1388,7 +1280,6 @@ void ONScripter::disableGetButtonFlag()
     gettab_flag = false;
     getpageup_flag = false;
     getpagedown_flag = false;
-    getmclick_flag = false;
     getinsert_flag = false;
     getfunction_flag = false;
     getenter_flag = false;

@@ -2,8 +2,8 @@
 /*
  *  DirectReader.h - Reader from independent files
  *
- *  Copyright (c) 2001-2016 Ogapee. All rights reserved.
- *            (C) 2014-2016 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -43,13 +43,12 @@ public:
     int getNumFiles();
     void registerCompressionType( const char *ext, int type );
 
-    struct FileInfo getFileByIndex( unsigned int index );
+	struct FileInfo getFileByIndex(unsigned int index);
     size_t getFileLength( const char *file_name );
     size_t getFile( const char *file_name, unsigned char *buffer, int *location=NULL );
 
-    static void convertCodingToEUC( char *buf );
-    static void convertCodingToUTF8( char *dst_buf, const char *src_buf );
-    static void convertFromUTF8ToCoding( char *dst_buf, const char *src_buf );
+    static void convertFromSJISToEUC( char *buf );
+    static void convertFromSJISToUTF8( char *dst_buf, const char *src_buf );
     
 protected:
     char *file_full_path;

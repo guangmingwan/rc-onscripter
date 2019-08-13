@@ -2,8 +2,7 @@
  * 
  *  FontInfo.h - Font information storage class of ONScripter
  *
- *  Copyright (c) 2001-2016 Ogapee. All rights reserved.
- *            (C) 2016 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2012 Ogapee. All rights reserved.
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -26,7 +25,6 @@
 #define __FONT_INFO_H__
 
 #include <SDL.h>
-#include "BaseReader.h"
 
 typedef unsigned char uchar3[3];
 
@@ -35,9 +33,6 @@ public:
     enum { YOKO_MODE = 0,
            TATE_MODE = 1
     };
-    static char *cache_font_file;
-    static void *font_cache;
-    static int font_cache_size;
     void *ttf_font[2]; // 0...normal rendering, 1...outline rendering
     uchar3 color;
     uchar3 on_color, off_color, nofile_color;

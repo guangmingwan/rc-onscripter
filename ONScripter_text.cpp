@@ -2,8 +2,8 @@
  * 
  *  ONScripter_text.cpp - Text parser of ONScripter
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2019 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -23,10 +23,8 @@
  */
 
 #include "ONScripter.h"
-#include "coding2utf16.h"
-#include "Utils.h"
 
-extern Coding2UTF16 *coding2utf16;
+extern unsigned short convSJIS2UTF16( unsigned short in );
 
 #define IS_ROTATION_REQUIRED(x)	\
     (!IS_TWO_BYTE(*(x)) ||                                              \
@@ -72,13 +70,13 @@ void ONScripter::shiftHalfPixelY(SDL_Surface *surface)
     SDL_UnlockSurface( surface );
 }
 
-void ONScripter::drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color &color, char* text, int xy[2], AnimationInfo *cache_info, SDL_Rect *clip, SDL_Rect &dst_rect )
+void ONScripter::drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color &color, char* text, int xy[2], bool shadow_flag, AnimationInfo *cache_info, SDL_Rect *clip, SDL_Rect &dst_rect )
 {
     unsigned short unicode;
     if (IS_TWO_BYTE(text[0])){
         unsigned index = ((unsigned char*)text)[0];
         index = index << 8 | ((unsigned char*)text)[1];
-        unicode = coding2utf16->conv2UTF16( index );
+        unicode = convSJIS2UTF16( index );
     }
     else{
         if ((text[0] & 0xe0) == 0xa0 || (text[0] & 0xe0) == 0xc0) unicode = ((unsigned char*)text)[0] - 0xa0 + 0xff60;
@@ -93,21 +91,13 @@ void ONScripter::drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color 
 #endif    
     TTF_GlyphMetrics( (TTF_Font*)info->ttf_font[0], unicode,
                       &minx, &maxx, &miny, &maxy, &advanced );
-    //utils::printInfo("min %d %d %d %d %d %d\n", minx, maxx, miny, maxy, advanced,TTF_FontAscent((TTF_Font*)info->ttf_font[0])  );
+    //printf("min %d %d %d %d %d %d\n", minx, maxx, miny, maxy, advanced,TTF_FontAscent((TTF_Font*)info->ttf_font[0])  );
 
     static SDL_Color fcol={0xff, 0xff, 0xff}, bcol={0, 0, 0};
     SDL_Surface *tmp_surface = TTF_RenderGlyph_Shaded((TTF_Font*)info->ttf_font[0], unicode, fcol, bcol);
     
-    SDL_Color scolor = {0, 0, 0};
     SDL_Surface *tmp_surface_s = tmp_surface;
-    if (info->is_shadow && render_font_outline){
-        unsigned char max_color = color.r;
-        if (max_color < color.g) max_color = color.g;
-        if (max_color < color.b) max_color = color.b;
-        if (max_color < 0x80) scolor.r = 0xff;
-        else                  scolor.r = 0;
-        scolor.g = scolor.b = scolor.r;
-
+    if (shadow_flag && render_font_outline){
         tmp_surface_s = TTF_RenderGlyph_Shaded((TTF_Font*)info->ttf_font[1], unicode, fcol, bcol);
         if (tmp_surface && tmp_surface_s){
             if ((tmp_surface_s->w-tmp_surface->w) & 1) shiftHalfPixelX(tmp_surface_s);
@@ -118,9 +108,8 @@ void ONScripter::drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color 
     bool rotate_flag = false;
     if ( info->getTateyokoMode() == FontInfo::TATE_MODE && IS_ROTATION_REQUIRED(text) ) rotate_flag = true;
     
-    dst_rect.x = xy[0];
-    dst_rect.y = xy[1];
-
+    dst_rect.x = xy[0] + minx;
+    dst_rect.y = xy[1] + TTF_FontAscent((TTF_Font*)info->ttf_font[0]) - maxy;
     dst_rect.y -= (TTF_FontHeight((TTF_Font*)info->ttf_font[0]) - info->font_size_xy[1]*screen_ratio1/screen_ratio2)/2;
 
     if ( rotate_flag ) dst_rect.x += miny - minx;
@@ -130,7 +119,7 @@ void ONScripter::drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color 
         dst_rect.y -= info->font_size_xy[0]/2;
     }
 
-    if (info->is_shadow && tmp_surface_s){
+    if (shadow_flag && tmp_surface_s){
         SDL_Rect dst_rect_s = dst_rect;
         if (render_font_outline){
             dst_rect_s.x -= (tmp_surface_s->w - tmp_surface->w)/2;
@@ -151,10 +140,10 @@ void ONScripter::drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color 
         }
 
         if (cache_info)
-            cache_info->blendText( tmp_surface_s, dst_rect_s.x, dst_rect_s.y, scolor, clip, rotate_flag );
+            cache_info->blendText( tmp_surface_s, dst_rect_s.x, dst_rect_s.y, bcol, clip, rotate_flag );
         
         if (dst_surface)
-            alphaBlendText( dst_surface, dst_rect_s, tmp_surface_s, scolor, clip, rotate_flag );
+            alphaBlendText( dst_surface, dst_rect_s, tmp_surface_s, bcol, clip, rotate_flag );
     }
 
     if ( tmp_surface ){
@@ -182,11 +171,11 @@ void ONScripter::drawGlyph( SDL_Surface *dst_surface, FontInfo *info, SDL_Color 
 
 void ONScripter::drawChar( char* text, FontInfo *info, bool flush_flag, bool lookback_flag, SDL_Surface *surface, AnimationInfo *cache_info, SDL_Rect *clip )
 {
-    //utils::printInfo("draw %x-%x[%s] %d, %d\n", text[0], text[1], text, info->xy[0], info->xy[1] );
+    //printf("draw %x-%x[%s] %d, %d\n", text[0], text[1], text, info->xy[0], info->xy[1] );
     
     if ( info->ttf_font[0] == NULL ){
         if ( info->openFont( font_file, screen_ratio1, screen_ratio2 ) == NULL ){
-            utils::printError("can't open font file: %s\n", font_file );
+            fprintf( stderr, "can't open font file: %s\n", font_file );
             quit();
             exit(-1);
         }
@@ -207,8 +196,8 @@ void ONScripter::drawChar( char* text, FontInfo *info, bool flush_flag, bool loo
         }
     }
 
-    info->old_xy[0] = info->x(false);
-    info->old_xy[1] = info->y(false);
+    info->old_xy[0] = info->x();
+    info->old_xy[1] = info->y();
 
     char text2[2] = {text[0], 0};
     if (IS_TWO_BYTE(text[0])) text2[1] = text[1];
@@ -220,7 +209,7 @@ void ONScripter::drawChar( char* text, FontInfo *info, bool flush_flag, bool loo
     
         SDL_Color color = {info->color[0], info->color[1], info->color[2]};
         SDL_Rect dst_rect;
-        drawGlyph( surface, info, color, text2, xy, cache_info, clip, dst_rect );
+        drawGlyph( surface, info, color, text2, xy, info->is_shadow, cache_info, clip, dst_rect );
 
         if ( surface == accumulation_surface &&
              !flush_flag &&
@@ -252,7 +241,7 @@ void ONScripter::drawChar( char* text, FontInfo *info, bool flush_flag, bool loo
     }
 }
 
-void ONScripter::drawString( const char *str, uchar3 color, FontInfo *info, bool flush_flag, SDL_Surface *surface, SDL_Rect *rect, AnimationInfo *cache_info, bool pack_hankaku)
+void ONScripter::drawString( const char *str, uchar3 color, FontInfo *info, bool flush_flag, SDL_Surface *surface, SDL_Rect *rect, AnimationInfo *cache_info )
 {
     int i;
 
@@ -333,8 +322,8 @@ void ONScripter::drawString( const char *str, uchar3 color, FontInfo *info, bool
         }
         else if (*str){
             text[0] = *str++;
-            if (*str && *str != 0x0a && pack_hankaku) text[1] = *str++;
-            else                                      text[1] = 0;
+            if (*str && *str != 0x0a) text[1] = *str++;
+            else                      text[1] = 0;
             drawChar( text, info, false, false, surface, cache_info );
         }
     }
@@ -431,18 +420,19 @@ void ONScripter::restoreTextBuffer(SDL_Surface *surface)
 void ONScripter::enterTextDisplayMode(bool text_flag)
 {
     if (line_enter_status <= 1 && (!pretextgosub_label || saveon_flag) && internal_saveon_flag && text_flag){
-        storeSaveFile();
+        saveSaveFile(false);
         internal_saveon_flag = false;
     }
     
     if (!(display_mode & DISPLAY_MODE_TEXT)){
+        refreshSurface( effect_dst_surface, NULL, refresh_shadow_text_mode );
         dirty_rect.clear();
         dirty_rect.add( sentence_font_info.pos );
-        display_mode = DISPLAY_MODE_TEXT;
 
-        if (setEffect(&window_effect)) return;
+        if (setEffect(&window_effect, false, true)) return;
         while(doEffect(&window_effect, false));
 
+        display_mode = DISPLAY_MODE_TEXT;
         text_on_flag = true;
     }
 }
@@ -452,11 +442,13 @@ void ONScripter::leaveTextDisplayMode(bool force_leave_flag)
     if (display_mode & DISPLAY_MODE_TEXT &&
         (force_leave_flag || erase_text_window_mode != 0)){
 
+        SDL_BlitSurface(backup_surface, NULL, effect_dst_surface, NULL);
         dirty_rect.add(sentence_font_info.pos);
-        display_mode = DISPLAY_MODE_NORMAL;
             
-        if (setEffect(&window_effect)) return;
+        if (setEffect(&window_effect, false, false)) return;
         while(doEffect(&window_effect, false));
+
+        display_mode = DISPLAY_MODE_NORMAL;
     }
 }
 
@@ -525,7 +517,7 @@ bool ONScripter::clickWait( char *out_text )
             textgosub_clickstr_state = CLICK_WAIT;
             if (script_h.getStringBuffer()[string_buffer_offset] == 0x0)
                 textgosub_clickstr_state |= CLICK_EOL;
-            gosubReal( textgosub_label, script_h.getWait(), true );
+            gosubReal( textgosub_label, script_h.getNext(), true );
 
             event_mode = IDLE_EVENT_MODE;
             waitEvent(0);
@@ -578,7 +570,7 @@ bool ONScripter::clickNewPage( char *out_text )
             saveon_flag = false;
 
             textgosub_clickstr_state = CLICK_NEWPAGE;
-            gosubReal( textgosub_label, script_h.getWait(), true );
+            gosubReal( textgosub_label, script_h.getNext(), true );
 
             event_mode = IDLE_EVENT_MODE;
             waitEvent(0);
@@ -658,7 +650,7 @@ void ONScripter::endRuby(bool flush_flag, bool lookback_flag, SDL_Surface *surfa
 int ONScripter::textCommand()
 {
     if (line_enter_status <= 1 && (!pretextgosub_label || saveon_flag) && internal_saveon_flag){
-        storeSaveFile();
+        saveSaveFile(false);
         internal_saveon_flag = false;
     }
 
@@ -668,8 +660,8 @@ int ONScripter::textCommand()
     if (buf[string_buffer_offset] == '[')
         string_buffer_offset++;
     else if (zenkakko_flag && 
-             buf[string_buffer_offset  ] == coding2utf16->bracket[0] &&
-             buf[string_buffer_offset+1] == coding2utf16->bracket[1])
+             buf[string_buffer_offset  ] == "¡¾"[0] && 
+             buf[string_buffer_offset+1] == "¡¾"[1])
         string_buffer_offset += 2;
     else
         tag_flag = false;
@@ -678,8 +670,8 @@ int ONScripter::textCommand()
     int end_offset = start_offset;
     while (tag_flag && buf[string_buffer_offset]){
         if (zenkakko_flag && 
-            buf[string_buffer_offset  ] == coding2utf16->bracket[2] && 
-            buf[string_buffer_offset+1] == coding2utf16->bracket[3]){
+            buf[string_buffer_offset  ] == "¡¿"[0] && 
+            buf[string_buffer_offset+1] == "¡¿"[1]){
             end_offset = string_buffer_offset;
             string_buffer_offset += 2;
             break;
@@ -695,9 +687,7 @@ int ONScripter::textCommand()
             string_buffer_offset++;
     }
 
-    char *current_script = script_h.getCurrent();
-    if (pretextgosub_label &&
-        (*(current_script-1) == 0x0a || *(current_script-1) == 0x0d) &&
+    if (pretextgosub_label && 
         (!pagetag_flag || page_enter_status == 0) &&
         line_enter_status == 0){
 
@@ -713,7 +703,6 @@ int ONScripter::textCommand()
         }
 
         saveon_flag = false;
-        pretext_buf = script_h.getCurrent();
         gosubReal( pretextgosub_label, script_h.getCurrent() );
         line_enter_status = 1;
 
@@ -722,15 +711,9 @@ int ONScripter::textCommand()
 
     enterTextDisplayMode();
 
-#ifdef USE_LUA
-    if (lua_handler.isCallbackEnabled(LUAHandler::LUA_TEXT))
-    {
-        if (lua_handler.callFunction(true, "text"))
-            errorAndExit( lua_handler.error_str );
-        processEOT();
-    }
-    else
-#endif    
+    line_enter_status = 2;
+    if (pagetag_flag) page_enter_status = 1;
+
     while(processText());
 
     return RET_CONTINUE;
@@ -741,10 +724,8 @@ bool ONScripter::checkLineBreak(const char *buf, FontInfo *fi)
     if (!is_kinsoku) return false;
     
     // check start kinsoku
-    if (isStartKinsoku( buf+2 ) ||
-        (buf[2]=='_' && isStartKinsoku( buf+3 ))){
+    if (isStartKinsoku( buf+2 )){
         const char *buf2 = buf;
-        if (buf2[2] == '_') buf2++;
         int i = 2;
         while (!fi->isEndOfLine(i)){
             if      ( buf2[i+2] == 0x0a || buf2[i+2] == 0 ) break;
@@ -786,15 +767,15 @@ void ONScripter::processEOT()
         sentence_font.newLine();
     }
 
-    if (!new_line_skip_flag && !pagetag_flag && line_enter_status == 2) line_enter_status = 0;
+    if (!new_line_skip_flag && !pagetag_flag) line_enter_status = 0;
 }
 
 bool ONScripter::processText()
 {
-    //utils::printInfo("textCommand %c %d %d %d\n", script_h.getStringBuffer()[ string_buffer_offset ], string_buffer_offset, event_mode, line_enter_status);
+    //printf("textCommand %c %d %d %d\n", script_h.getStringBuffer()[ string_buffer_offset ], string_buffer_offset, event_mode, line_enter_status);
     char out_text[3]= {'\0', '\0', '\0'};
 
-    //utils::printInfo("*** textCommand %d (%d,%d)\n", string_buffer_offset, sentence_font.xy[0], sentence_font.xy[1]);
+    //printf("*** textCommand %d (%d,%d)\n", string_buffer_offset, sentence_font.xy[0], sentence_font.xy[1]);
 
     while( (!(script_h.getEndStatus() & ScriptHandler::END_1BYTE_CHAR) &&
             script_h.getStringBuffer()[ string_buffer_offset ] == ' ') ||
@@ -804,9 +785,6 @@ bool ONScripter::processText()
         processEOT();
         return false;
     }
-
-    line_enter_status = 2;
-    if (pagetag_flag) page_enter_status = 1;
 
     new_line_skip_flag = false;
     

@@ -2,8 +2,7 @@
  *
  *  ONScripter_file2.cpp - FILE I/O of ONScripter
  *
- *  Copyright (c) 2001-2016 Ogapee. All rights reserved.
- *            (C) 2014-2016 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2013 Ogapee. All rights reserved.
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -26,7 +25,6 @@
 
 int ONScripter::loadSaveFile2( int file_version )
 {
-    stopSMPEG();
     deleteNestInfo();
     
     int i, j;
@@ -128,9 +126,6 @@ int ONScripter::loadSaveFile2( int file_version )
         readInt(); // -1
     }
     
-    for (i=0 ; i<MAX_TEXTURE_NUM ; i++) texture_info[i].reset();
-    smpeg_info = NULL;
-
     for ( i=0 ; i<MAX_SPRITE_NUM ; i++ ){
         AnimationInfo *ai = &sprite_info[i];
         
@@ -186,7 +181,6 @@ int ONScripter::loadSaveFile2( int file_version )
         num_nest = readInt();
         file_io_buf_ptr += num_nest*4;
     }
-    pretext_buf = last_nest_info->next_script;
 
     if (readInt() == 1) monocro_flag = true;
     else                monocro_flag = false;
@@ -323,14 +317,11 @@ int ONScripter::loadSaveFile2( int file_version )
     readInt(); // 0
     readInt(); // 1
     btndef_info.remove();
-    if (blt_texture != NULL) SDL_DestroyTexture(blt_texture);
-    blt_texture = NULL;
     readStr( &btndef_info.image_name );
     if ( btndef_info.image_name && btndef_info.image_name[0] != '\0' ){
         parseTaggedString( &btndef_info );
         setupAnimationInfo( &btndef_info );
-
-        SDL_SetSurfaceBlendMode(btndef_info.image_surface, SDL_BLENDMODE_NONE);
+        SDL_SetAlpha( btndef_info.image_surface, DEFAULT_BLIT_FLAG, SDL_ALPHA_OPAQUE );
     }
 
     if ( file_version >= 202 )
@@ -381,10 +372,6 @@ int ONScripter::loadSaveFile2( int file_version )
             else                  ai->visible = false;
             ai->trans = readInt();
             ai->blending_mode = readInt();
-            ai->affine_pos.x = 0;
-            ai->affine_pos.y = 0;
-            ai->affine_pos.w = ai->pos.w;
-            ai->affine_pos.h = ai->pos.h;
             ai->calcAffineMatrix();
         }
         
@@ -436,7 +423,7 @@ int ONScripter::loadSaveFile2( int file_version )
     i = readInt();
     current_label_info = script_h.getLabelByLine( i );
     current_line = i - current_label_info.start_line;
-    //utils::printInfo("load %d:%d(%d-%d)\n", current_label_info.start_line, current_line, i, current_label_info.start_line);
+    //printf("load %d:%d(%d-%d)\n", current_label_info.start_line, current_line, i, current_label_info.start_line);
     char *buf = script_h.getAddressByLine( i );
     
     j = readInt();
@@ -700,7 +687,7 @@ void ONScripter::saveSaveFile2( bool output_flag )
     
     writeInt( current_label_info.start_line + current_line, output_flag );
     char *buf = script_h.getAddressByLine( current_label_info.start_line + current_line );
-    //utils::printInfo("save %d:%d\n", current_label_info.start_line, current_line);
+    //printf("save %d:%d\n", current_label_info.start_line, current_line);
 
     i = 0;
     if (!script_h.isText()){

@@ -2,8 +2,7 @@
  *
  *  BaseReader.h - Base class of archive reader
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2018 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -26,12 +25,6 @@
 #define __BASE_READER_H__
 
 #include <stdio.h>
-#ifdef ANDROID
-extern "C" FILE *fopen_ons(const char *str, const char *mode);
-#define fopen fopen_ons
-extern "C" int mkdir_ons(const char *pathname, mode_t mode);
-#define mkdir mkdir_ons
-#endif
 
 #ifndef SEEK_END
 #define SEEK_END 2
@@ -39,7 +32,7 @@ extern "C" int mkdir_ons(const char *pathname, mode_t mode);
 
 #if defined(LINUX) || defined(MACOSX)
 #define DELIMITER '/'
-#elif defined(WIN32) || defined(_WIN32)
+#elif defined(WIN32)
 #define DELIMITER '\\'
 #elif defined(MACOS9)
 #define DELIMITER ':'
@@ -110,7 +103,7 @@ struct BaseReader
     virtual int  getNumFiles() = 0;
     virtual void registerCompressionType( const char *ext, int type ) = 0;
 
-    //virtual FileInfo getFileByIndex( unsigned int index ) = 0;
+    virtual FileInfo getFileByIndex( unsigned int index ) = 0;
     virtual size_t getFileLength( const char *file_name ) = 0;
     virtual size_t getFile( const char *file_name, unsigned char *buffer, int *location=NULL ) = 0;
 };

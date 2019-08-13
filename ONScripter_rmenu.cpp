@@ -2,8 +2,8 @@
  *
  *  ONScripter_rmenu.cpp - Right click menu handler of ONScripter
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2019 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -23,8 +23,6 @@
  */
 
 #include "ONScripter.h"
-#include "Utils.h"
-#include "coding2utf16.h"
 
 #define DIALOG_W 241
 #define DIALOG_H 167
@@ -45,17 +43,16 @@
 #define MESSAGE_OK "OK"
 #define MESSAGE_CANCEL "Cancel"
 #else
-extern Coding2UTF16 *coding2utf16;
-#define MESSAGE_SAVE_EXIST coding2utf16->MESSAGE_SAVE_EXIST
-#define MESSAGE_SAVE_EMPTY coding2utf16->MESSAGE_SAVE_EMPTY
-#define MESSAGE_SAVE_CONFIRM coding2utf16->MESSAGE_SAVE_CONFIRM
-#define MESSAGE_LOAD_CONFIRM coding2utf16->MESSAGE_LOAD_CONFIRM
-#define MESSAGE_RESET_CONFIRM coding2utf16->MESSAGE_RESET_CONFIRM
-#define MESSAGE_END_CONFIRM coding2utf16->MESSAGE_END_CONFIRM
-#define MESSAGE_YES coding2utf16->MESSAGE_YES
-#define MESSAGE_NO coding2utf16->MESSAGE_NO
-#define MESSAGE_OK coding2utf16->MESSAGE_OK
-#define MESSAGE_CANCEL coding2utf16->MESSAGE_CANCEL
+#define MESSAGE_SAVE_EXIST "%s%s　%s月%s日%s时%s分"
+#define MESSAGE_SAVE_EMPTY "%s%s　————————————"
+#define MESSAGE_SAVE_CONFIRM "保存在%s%s？"
+#define MESSAGE_LOAD_CONFIRM "读取%s%s？"
+#define MESSAGE_RESET_CONFIRM "返回标题？"
+#define MESSAGE_END_CONFIRM "退出？"
+#define MESSAGE_YES "是"
+#define MESSAGE_NO "否"
+#define MESSAGE_OK "确定"
+#define MESSAGE_CANCEL "取消"
 #endif
 
 #ifdef ANDROID
@@ -79,7 +76,6 @@ static int osprintf(char *str, const char *format, ...)
         }
     }
     va_end( list );
-    return strlen(str);
 }
 #define sprintf osprintf
 #endif
@@ -108,7 +104,7 @@ void ONScripter::leaveSystemCall( bool restore_flag )
     if ( restore_flag ){
         
         current_page = cached_page;
-        SDL_BlitSurface( backup_surface, NULL, text_info.image_surface, NULL );
+        restoreTextBuffer();
         root_button_link.next = shelter_button_link;
         root_select_link.next = shelter_select_link;
 
@@ -117,13 +113,13 @@ void ONScripter::leaveSystemCall( bool restore_flag )
         if ( event_mode & WAIT_BUTTON_MODE ){
             int x = shelter_mouse_state.x * screen_device_width / screen_width;
             int y = shelter_mouse_state.y * screen_device_width / screen_width;
-            warpMouse(x, y);
+            SDL_WarpMouse(x, y);
         }
     }
     dirty_rect.fill( screen_width, screen_height );
     flush( refreshMode() );
 
-    //utils::printInfo("leaveSystemCall %d %d\n",event_mode, clickstr_state);
+    //printf("leaveSystemCall %d %d\n",event_mode, clickstr_state);
 
     refreshMouseOverButton();
 
@@ -132,8 +128,6 @@ void ONScripter::leaveSystemCall( bool restore_flag )
 
 int ONScripter::executeSystemCall()
 {
-    SDL_BlitSurface( text_info.image_surface, NULL, backup_surface, NULL );
-    
     enterSystemCall();
 
     while(system_menu_mode != SYSTEM_NULL){
@@ -247,7 +241,7 @@ void ONScripter::executeSystemAutomode()
 {
     automode_flag = true;
     skip_mode &= ~SKIP_NORMAL;
-    utils::printInfo("systemcall_automode: change to automode\n");
+    printf("systemcall_automode: change to automode\n");
     leaveSystemCall();
 }
 
@@ -365,6 +359,7 @@ bool ONScripter::executeSystemLoad()
                 return false;
 
             leaveSystemCall( false );
+            refreshSurface(backup_surface, NULL, REFRESH_NORMAL_MODE);
             saveon_flag = true;
             internal_saveon_flag = true;
             text_on_flag = false;
@@ -375,13 +370,6 @@ bool ONScripter::executeSystemLoad()
             break_flag = false;
 
             flushEvent();
-
-#ifdef USE_LUA
-            if (lua_handler.isCallbackEnabled(LUAHandler::LUA_LOAD)){
-                if (lua_handler.callFunction(true, "load", &file_no))
-                    errorAndExit( lua_handler.error_str );
-            }
-#endif
 
             if (loadgosub_label)
                 gosubReal( loadgosub_label, script_h.getCurrent() );
@@ -458,8 +446,8 @@ void ONScripter::executeSystemSave()
     if ( current_button_state.button > 0 ){
         int file_no = current_button_state.button;
         if (executeSystemYesNo( SYSTEM_SAVE, file_no )){
-            if (saveon_flag && internal_saveon_flag) storeSaveFile();
-            writeSaveFile( file_no );
+            if (saveon_flag && internal_saveon_flag) saveSaveFile(false);
+            saveSaveFile( true, file_no );
             leaveSystemCall();
         }
         return;

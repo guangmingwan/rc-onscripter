@@ -3,7 +3,6 @@
  *  sardec.cpp - SAR archive decoder
  *
  *  Copyright (c) 2001-2004 Ogapee. All rights reserved.
- *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -29,12 +28,6 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include "SarReader.h"
-#ifdef _WIN32
-#include <direct.h>
-inline int mkdir(const char *pathname, int unused){
-  return _mkdir(pathname);
-}
-#endif
 
 extern int errno;
 

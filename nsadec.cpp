@@ -2,8 +2,7 @@
  * 
  *  nsadec.cpp - NSA archive decoder
  *
- *  Copyright (c) 2001-2015 Ogapee. All rights reserved.
- *            (C) 2014-2015 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -29,17 +28,8 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include "NsaReader.h"
-#include "coding2utf16.h"
-#include "gbk2utf16.h"
-#ifdef _WIN32
-#include <direct.h>
-inline int mkdir(const char *pathname, int unused){
-	return _mkdir(pathname);
-}
-#endif
 
 extern int errno;
-Coding2UTF16 *coding2utf16;
 
 int main( int argc, char **argv )
 {
@@ -55,20 +45,14 @@ int main( int argc, char **argv )
 
     if ( argc >= 2 ){
         while ( argc > 2 ){
-			if (!strcmp(argv[1], "-ns2")) {
-				archive_type = BaseReader::ARCHIVE_TYPE_NS2;
-			} else if ( !strcmp( argv[1], "-offset") ){
-                nsa_offset = atoi(argv[2]);
-                argc--;
-                argv++;
-            }
-
+            if      ( !strcmp( argv[1], "-ns2" ) ) nsa_offset = 1;
+            else if ( !strcmp( argv[1], "-ns3" ) ) nsa_offset = 2;
             argc--;
             argv++;
         }
     }
     if ( argc != 2 ){
-        fprintf( stderr, "Usage: nsadec [-offset ##] [-ns2] arc_file\n");
+        fprintf( stderr, "Usage: nsadec [-ns2] [-ns3] arc_file\n");
         exit(-1);
     }
     cNR.openForConvert( argv[1], archive_type, nsa_offset );

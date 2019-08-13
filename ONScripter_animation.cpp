@@ -2,8 +2,8 @@
  * 
  *  ONScripter_animation.cpp - Methods to manipulate AnimationInfo
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2018 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -23,71 +23,94 @@
  */
 
 #include "ONScripter.h"
-#include "Utils.h"
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-#include "builtin_layer.h"
-#endif
 
 #define DEFAULT_CURSOR_WAIT    ":l/3,160,2;cursor0.bmp"
 #define DEFAULT_CURSOR_NEWPAGE ":l/3,160,2;cursor1.bmp"
 
 int ONScripter::calcDurationToNextAnimation()
 {
-    int min = 0; // minimum next time
+    int min = -1; // minimum duration
     
     for (int i=0 ; i<3 ; i++){
         AnimationInfo *anim = &tachi_info[i];
         if (anim->visible && anim->is_animatable){
-            if (min == 0 || min > anim->next_time)
-                min = anim->next_time;
+            if (min == -1 || min > anim->remaining_time)
+                min = anim->remaining_time;
         }
     }
 
     for (int i=MAX_SPRITE_NUM-1 ; i>=0 ; i--){
         AnimationInfo *anim = &sprite_info[i];
         if (anim->visible && anim->is_animatable){
-            if (min == 0 || min > anim->next_time)
-                min = anim->next_time;
+            if (min == -1 || min > anim->remaining_time)
+                min = anim->remaining_time;
         }
     }
 
     if (!textgosub_label &&
          (clickstr_state == CLICK_WAIT || clickstr_state == CLICK_NEWPAGE)){
-        AnimationInfo *anim = &cursor_info[0]; // CLICK_WAIT
-        if (clickstr_state == CLICK_NEWPAGE)
+        AnimationInfo *anim = 0;
+        if      (clickstr_state == CLICK_WAIT)
+            anim = &cursor_info[0];
+        else if (clickstr_state == CLICK_NEWPAGE)
             anim = &cursor_info[1];
 
         if (anim->visible && anim->is_animatable){
-            if (min == 0 || min > anim->next_time)
-                min = anim->next_time;
+            if (min == -1 || min > anim->remaining_time)
+                min = anim->remaining_time;
         }
     }
 
 #ifdef USE_LUA
     if (lua_handler.is_animatable && !script_h.isExternalScript()){
-        if (min == 0 || min > lua_handler.next_time)
-            min = lua_handler.next_time;
+        if (min == -1 || min > lua_handler.remaining_time)
+            min = lua_handler.remaining_time;
     }
 #endif
+
+    if (min == -1) min = 0;
 
     return min;
 }
 
-void ONScripter::proceedAnimation(int current_time)
+void ONScripter::stepAnimation(int t)
 {
     for (int i=0 ; i<3 ; i++)
-        if (tachi_info[i].proceedAnimation(current_time))
+        tachi_info[i].stepAnimation(t);
+        
+    for (int i=MAX_SPRITE_NUM-1 ; i>=0 ; i--)
+        sprite_info[i].stepAnimation(t);
+
+#ifdef USE_LUA
+    if (lua_handler.is_animatable && !script_h.isExternalScript())
+        lua_handler.remaining_time -= t;
+#endif
+
+    if (!textgosub_label){
+        if (clickstr_state == CLICK_WAIT)
+            cursor_info[0].stepAnimation(t);
+        else if (clickstr_state == CLICK_NEWPAGE)
+            cursor_info[1].stepAnimation(t);
+    }
+}
+
+void ONScripter::proceedAnimation()
+{
+    for (int i=0 ; i<3 ; i++)
+        if (tachi_info[i].proceedAnimation())
             flushDirect(tachi_info[i].pos, refreshMode() | (draw_cursor_flag?REFRESH_CURSOR_MODE:0));
         
     for (int i=MAX_SPRITE_NUM-1 ; i>=0 ; i--)
-        if (sprite_info[i].proceedAnimation(current_time))
+        if (sprite_info[i].proceedAnimation())
             flushDirect(sprite_info[i].pos, refreshMode() | (draw_cursor_flag?REFRESH_CURSOR_MODE:0));
 
 #ifdef USE_LUA
     if (lua_handler.is_animatable && !script_h.isExternalScript()){
-        while(lua_handler.next_time <= current_time){
+        if (lua_handler.remaining_time == 0){
+            lua_handler.remaining_time = lua_handler.duration_time;
+
             int tmp_event_mode = event_mode;
-            int tmp_next_time = next_time;
+            int tmp_remaining_time = remaining_time;
             int tmp_string_buffer_offset = string_buffer_offset;
 
             char *current = script_h.getCurrent();
@@ -98,25 +121,21 @@ void ONScripter::proceedAnimation(int current_time)
             readToken();
 
             string_buffer_offset = tmp_string_buffer_offset;
-            next_time = tmp_next_time;
+            remaining_time = tmp_remaining_time;
             event_mode = tmp_event_mode;
-
-            lua_handler.next_time += lua_handler.duration_time;
-            if (lua_handler.duration_time <= 0){
-                lua_handler.next_time = current_time;
-                break;
-            }
         }
     }
 #endif
 
     if (!textgosub_label &&
         (clickstr_state == CLICK_WAIT || clickstr_state == CLICK_NEWPAGE)){
-        AnimationInfo *anim = &cursor_info[0]; // CLICK_WAIT
-        if (clickstr_state == CLICK_NEWPAGE)
+        AnimationInfo *anim = 0;
+        if (clickstr_state == CLICK_WAIT)
+            anim = &cursor_info[0];
+        else if (clickstr_state == CLICK_NEWPAGE)
             anim = &cursor_info[1];
         
-        if (anim->proceedAnimation(current_time)){
+        if (anim->proceedAnimation()){
             SDL_Rect dst_rect = anim->pos;
             if (!anim->abs_flag){
                 dst_rect.x += sentence_font.x() * screen_ratio1 / screen_ratio2;
@@ -139,13 +158,8 @@ void ONScripter::setupAnimationInfo( AnimationInfo *anim, FontInfo *info )
     anim->deleteSurface();
     anim->abs_flag = true;
 
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-    if (anim->trans_mode != AnimationInfo::TRANS_LAYER) 
-#endif
-    {
-        anim->surface_name = new char[ strlen(anim->file_name) + 1 ];
-        strcpy( anim->surface_name, anim->file_name );
-    }
+    anim->surface_name = new char[ strlen(anim->file_name) + 1 ];
+    strcpy( anim->surface_name, anim->file_name );
 
     if (anim->mask_file_name){
         anim->mask_surface_name = new char[ strlen(anim->mask_file_name) + 1 ];
@@ -212,16 +226,10 @@ void ONScripter::setupAnimationInfo( AnimationInfo *anim, FontInfo *info )
             f_info.top_xy[0] += anim->orig_pos.w;
         }
     }
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-    else if (anim->trans_mode == AnimationInfo::TRANS_LAYER) {
-      anim->allocImage(anim->pos.w, anim->pos.h, texture_format);
-      anim->fill(0, 0, 0, 0);
-    }
-#endif
     else{
         bool has_alpha;
         int location;
-        SDL_Surface *surface = loadImage( anim->file_name, &has_alpha, &location, &anim->default_alpha );
+        SDL_Surface *surface = loadImage( anim->file_name, &has_alpha, &location );
 
         SDL_Surface *surface_m = NULL;
         if (anim->trans_mode == AnimationInfo::TRANS_MASK)
@@ -343,34 +351,12 @@ void ONScripter::parseTaggedString( AnimationInfo *anim )
         if (anim->trans_mode != AnimationInfo::TRANS_STRING)
             while(buffer[0] != '/' && buffer[0] != ';' && buffer[0] != '\0') buffer++;
     }
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-    else if (buffer[0] == '*') {
-        anim->trans_mode = AnimationInfo::TRANS_LAYER;
-        buffer++;
-        anim->layer_no = getNumberFromBuffer((const char**)&buffer);
-        LayerInfo *tmp = &layer_info[anim->layer_no];
-
-        if (tmp->handler) {
-            anim->pos.x = anim->pos.y = 0;
-            anim->pos.w = screen_width;
-            anim->pos.h = screen_height;
-            tmp->handler->setSpriteInfo(sprite_info, anim);
-            anim->duration_list = new int[1];
-            anim->duration_list[0] = tmp->interval;
-            anim->next_time = SDL_GetTicks() + tmp->interval;
-            anim->is_animatable = true;
-            utils::printInfo("setup a sprite for layer %d\n", anim->layer_no);
-        } else
-            anim->layer_no = -1;
-        return;
-    }
-#endif
 
     if ( buffer[0] == '/' && anim->trans_mode != AnimationInfo::TRANS_STRING){
         buffer++;
         anim->num_of_cells = getNumberFromBuffer( (const char**)&buffer );
         if ( anim->num_of_cells == 0 ){
-            utils::printError("ONScripter::parseTaggedString  The number of cells is 0\n");
+            fprintf( stderr, "ONScripter::parseTaggedString  The number of cells is 0\n");
             return;
         }
 
@@ -391,14 +377,14 @@ void ONScripter::parseTaggedString( AnimationInfo *anim )
                 for ( i=1 ; i<anim->num_of_cells ; i++ )
                     anim->duration_list[i] = anim->duration_list[0];
             }
-            anim->next_time = SDL_GetTicks() + anim->duration_list[0];
+            anim->remaining_time = anim->duration_list[0];
         
             buffer++;
             anim->loop_mode = *buffer++ - '0'; // 3...no animation
         }
         else{
             for ( i=0 ; i<anim->num_of_cells ; i++ )
-                anim->duration_list[i] = 0;
+                anim->duration_list[0] = 0;
             anim->loop_mode = 3; // 3...no animation
         }
         if ( anim->loop_mode != 3 ) anim->is_animatable = true;
@@ -420,15 +406,6 @@ void ONScripter::parseTaggedString( AnimationInfo *anim )
 
 void ONScripter::drawTaggedSurface( SDL_Surface *dst_surface, AnimationInfo *anim, SDL_Rect &clip )
 {
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-  if (anim->trans_mode == AnimationInfo::TRANS_LAYER) {
-    if (anim->layer_no >= 0) {
-      LayerInfo *tmp = &layer_info[anim->layer_no];
-      if (tmp->handler) tmp->handler->refresh(dst_surface, clip);
-    }
-    return;
-  }
-#endif
     SDL_Rect poly_rect = anim->pos;
     if ( !anim->abs_flag ){
         poly_rect.x += sentence_font.x() * screen_ratio1 / screen_ratio2;
