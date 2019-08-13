@@ -191,6 +191,20 @@ SDLKey transJoystickButton(Uint8 button)
         SDLK_UNKNOWN, /* STICK     */
     };
     return button_map[button];
+#elif defined(RC)
+    SDLKey button_map[] = {
+	SDLK_SPACE,   /* X         */
+        SDLK_RCTRL,   /* A         */
+        SDLK_RETURN,  /* B         */
+        SDLK_ESCAPE,  /* Y         */
+        SDLK_o,       /* L         */
+        SDLK_UNKNOWN, /* UPLEFT    */
+        SDLK_s,       /* R         */
+        SDLK_UNKNOWN, /* DOWNLEFT  */
+        SDLK_0,       /* SELECT    */
+        SDLK_a,       /* START     */
+    };
+    return button_map[button];
 #endif
     return SDLK_UNKNOWN;
 }
@@ -1038,7 +1052,7 @@ void ONScripter::timerEvent()
 void ONScripter::runEventLoop()
 {
     SDL_Event event, tmp_event;
-
+    SDL_KeyboardEvent hat_ke;
     while ( SDL_WaitEvent(&event) ) {
         bool ret = false;
         // ignore continous SDL_MOUSEMOTION
@@ -1188,7 +1202,51 @@ void ONScripter::runEventLoop()
               }
               break;
           }
+	  case SDL_JOYHATMOTION:
+			hat_ke.type = SDL_KEYDOWN;
+				switch (event.jhat.value)
+				{
+				case SDL_HAT_UP:
+				case SDL_HAT_RIGHTUP:
 
+					/* Do up stuff here */
+					 hat_ke.keysym.sym = SDLK_UP;
+
+					break;
+
+				case SDL_HAT_LEFT:
+				case SDL_HAT_LEFTUP:
+
+					/* Do left stuff here */
+					hat_ke.keysym.sym = SDLK_LEFT;
+					break;
+
+				case SDL_HAT_RIGHT:
+				case SDL_HAT_RIGHTDOWN:
+					/* Do right and down together stuff here */
+					hat_ke.keysym.sym = SDLK_RIGHT;
+					break;
+				case SDL_HAT_DOWN:
+				case SDL_HAT_LEFTDOWN:
+					/* Do right and down together stuff here */
+					hat_ke.keysym.sym = SDLK_DOWN;
+					break;
+				default:
+					hat_ke.type = SDL_KEYUP;
+					break;
+				}
+		if (hat_ke.keysym.sym != SDLK_UNKNOWN){
+                  if (hat_ke.type == SDL_KEYDOWN){
+                      keyDownEvent( &hat_ke );
+                      if (btndown_flag)
+                          keyPressEvent( &hat_ke );
+                  }
+                  else if (hat_ke.type == SDL_KEYUP){
+                      keyUpEvent( &hat_ke );
+                      keyPressEvent( &hat_ke );
+                  }
+              }
+	  break;
           case ONS_TIMER_EVENT:
             timerEvent();
             break;
