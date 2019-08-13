@@ -2,8 +2,8 @@
  *
  *  ONScripter_file.cpp - FILE I/O of ONScripter
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2018 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -30,9 +30,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
-#elif defined(WIN32) || defined(_WIN32)
+#elif defined(_WIN32)
 #include <windows.h>
-extern "C" { FILE __iob_func[3] = { *stdin,*stdout,*stderr }; }
 #elif defined(MACOS9)
 #include <DateTimeUtils.h>
 #include <Files.h>
@@ -68,33 +67,37 @@ void ONScripter::searchSaveFile( SaveFileInfo &save_file_info, int no )
     save_file_info.hour   = tm->tm_hour;
     save_file_info.minute = tm->tm_min;
 #elif defined(WINRT)
-    sprintf(file_name, "%ssave%d.dat", save_dir ? save_dir : archive_path, no);
-    WCHAR file_nameW[256];
-    MultiByteToWideChar(CP_ACP, 0, file_name, -1, file_nameW, 256);
-    WIN32_FILE_ATTRIBUTE_DATA wfad;
-    if (!GetFileAttributesEx(file_nameW, GetFileExInfoStandard, &wfad)) {
-        save_file_info.valid = false;
-        return;
-    }
+	sprintf(file_name, "%ssave%d.dat", save_dir ? save_dir : archive_path, no);
+	WCHAR file_nameW[256];
+	MultiByteToWideChar(CP_ACP, 0, file_name, -1, file_nameW, 256);
+	WIN32_FILE_ATTRIBUTE_DATA wfad;
+	if (!GetFileAttributesEx(file_nameW, GetFileExInfoStandard, &wfad)) {
+		save_file_info.valid = false;
+		return;
+	}
 
-    SYSTEMTIME stm;
-    FileTimeToSystemTime( &wfad.ftLastWriteTime, &stm);
+	SYSTEMTIME stm;
+	FileTimeToSystemTime( &wfad.ftLastWriteTime, &stm);
 
-    save_file_info.month  = stm.wMonth;
-    save_file_info.day    = stm.wDay;
-    save_file_info.hour   = stm.wHour;
-    save_file_info.minute = stm.wMinute;
-#elif defined(WIN32) || defined(_WIN32)
+	save_file_info.month  = stm.wMonth;
+	save_file_info.day    = stm.wDay;
+	save_file_info.hour   = stm.wHour;
+	save_file_info.minute = stm.wMinute;
+#elif defined(_WIN32)
     sprintf( file_name, "%ssave%d.dat", save_dir?save_dir:archive_path, no );
     HANDLE  handle;
     FILETIME    tm, ltm;
     SYSTEMTIME  stm;
 
+#if defined(WINCE)
     WCHAR file_nameW[256];
     MultiByteToWideChar(CP_ACP, 0, file_name, -1, file_nameW, 256);
-    handle = CreateFile( file_nameW, GENERIC_READ, 0, NULL,
+	handle = CreateFile( file_nameW, GENERIC_READ, 0, NULL,
+		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+#else
+    handle = CreateFile( file_name, GENERIC_READ, 0, NULL,
                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
-
+#endif
     if ( handle == INVALID_HANDLE_VALUE ){
         save_file_info.valid = false;
         return;
@@ -239,36 +242,38 @@ void ONScripter::saveMagicNumber( bool output_flag )
     writeChar( SAVEFILE_VERSION_MINOR, output_flag );
 }
 
-void ONScripter::storeSaveFile()
+int ONScripter::saveSaveFile( bool write_to_disk, int no, const char *savestr )
 {
-    file_io_buf_ptr = 0;
-    saveMagicNumber( false );
-    saveSaveFile2( false );
-    allocFileIOBuf();
-    saveMagicNumber( true );
-    saveSaveFile2( true );
-    save_data_len = file_io_buf_ptr;
-    memcpy(save_data_buf, file_io_buf, save_data_len);
-}
-
-int ONScripter::writeSaveFile( int no, const char *savestr )
-{
-    saveAll();
-
-    char filename[32];
-    sprintf( filename, "save%d.dat", no );
-        
-    memcpy(file_io_buf, save_data_buf, save_data_len);
-    file_io_buf_ptr = save_data_len;
-    if (saveFileIOBuf( filename, 0, savestr )){
-        utils::printError("can't open save file %s for writing\n", filename );
-        return -1;
+    // make save data structure on memory
+    if (!write_to_disk || (saveon_flag && internal_saveon_flag)){
+        file_io_buf_ptr = 0;
+        saveMagicNumber( false );
+        saveSaveFile2( false );
+        allocFileIOBuf();
+        saveMagicNumber( true );
+        saveSaveFile2( true );
+        save_data_len = file_io_buf_ptr;
+        memcpy(save_data_buf, file_io_buf, save_data_len);
     }
+    
+    if (write_to_disk){
+        saveAll();
 
-    size_t magic_len = strlen(SAVEFILE_MAGIC_NUMBER)+2;
-    sprintf( filename, RELATIVEPATH "sav%csave%d.dat", DELIMITER, no );
-    if (saveFileIOBuf( filename, magic_len, savestr ))
-        utils::printError("can't open save file %s for writing (not an error)\n", filename );
+        char filename[32];
+        sprintf( filename, "save%d.dat", no );
+        
+        memcpy(file_io_buf, save_data_buf, save_data_len);
+        file_io_buf_ptr = save_data_len;
+        if (saveFileIOBuf( filename, 0, savestr )){
+            utils::printError("can't open save file %s for writing\n", filename );
+            return -1;
+        }
+
+        size_t magic_len = strlen(SAVEFILE_MAGIC_NUMBER)+2;
+        sprintf( filename, RELATIVEPATH "sav%csave%d.dat", DELIMITER, no );
+        if (saveFileIOBuf( filename, magic_len, savestr ))
+            utils::printError("can't open save file %s for writing (not an error)\n", filename );
+    }
 
     return 0;
 }

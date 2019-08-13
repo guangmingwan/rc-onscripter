@@ -2,8 +2,8 @@
  * 
  *  ScriptParser.h - Define block parser of ONScripter
  *
- *  Copyright (c) 2001-2016 Ogapee. All rights reserved.
- *            (C) 2014-2016 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2013 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -39,12 +39,6 @@
 #ifdef USE_LUA
 #include "LUAHandler.h"
 #endif
-#include "coding2utf16.h"
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-#include "builtin_layer.h"
-#endif
-
-extern Coding2UTF16 *coding2utf16;
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -58,8 +52,8 @@ extern Coding2UTF16 *coding2utf16;
 #define DEFAULT_LOOKBACK_NAME2 "doncur.bmp"
 #define DEFAULT_LOOKBACK_NAME3 "doffcur.bmp"
 
-#define DEFAULT_START_KINSOKU coding2utf16->DEFAULT_START_KINSOKU
-#define DEFAULT_END_KINSOKU   coding2utf16->DEFAULT_END_KINSOKU
+#define DEFAULT_START_KINSOKU "¡¹¡»£©£Ý£ý¡¢¡££¬£®¡££¿£¡©c©d©f©g¡©©`"
+#define DEFAULT_END_KINSOKU   "¡¸¡º£¨£Û£û"
 
 typedef unsigned char uchar3[3];
 
@@ -73,7 +67,6 @@ public:
     int  openScript();
     void setCurrentLabel( const char *label );
     void gosubReal( const char *label, char *next_script, bool textgosub_flag=false );
-    int getStringBufferOffset(){return string_buffer_offset;};
 
     FILE *fopen(const char *path, const char *mode, bool use_save_dir=false);
     void saveGlovalData();
@@ -96,7 +89,6 @@ public:
     int skipCommand();
     int sinCommand();
     int shadedistanceCommand();
-    int setlayerCommand();
     int setkinsokuCommand();
     int selectvoiceCommand();
     int selectcolorCommand();
@@ -116,7 +108,6 @@ public:
     int nextCommand();
     int mulCommand();
     int movCommand();
-    int mode_wave_demoCommand();
     int mode_sayaCommand();
     int mode_extCommand();
     int modCommand();
@@ -167,7 +158,6 @@ public:
     int clickvoiceCommand();
     int clickstrCommand();
     int breakCommand();
-    int autosaveoffCommand();
     int atoiCommand();
     int arcCommand();
     int addkinsokuCommand();
@@ -201,11 +191,13 @@ protected:
         char *next_script; // used in gosub and for
         int  var_no, to, step; // used in for
         bool textgosub_flag; // used in textgosub and pretextgosub
+        char *wait_script; // used in gosub with textgosub
 
         NestInfo(){
             previous = next = NULL;
             nest_mode = LABEL;
             textgosub_flag = false;
+            wait_script = NULL;
         };
     } last_tilde;
 
@@ -245,14 +237,12 @@ protected:
     bool filelog_flag;
     bool kidokuskip_flag;
     bool kidokumode_flag;
-    bool autosaveoff_flag;
 
     int z_order;
     bool rmode_flag;
     bool windowback_flag;
     bool usewheel_flag;
     bool useescspc_flag;
-    bool mode_wave_demo_flag;
     bool mode_saya_flag;
     bool mode_ext_flag;
     bool force_button_shortcut_flag;
@@ -276,9 +266,7 @@ protected:
     int screen_width, screen_height;
     int screen_device_width, screen_device_height;
     int device_width, device_height;
-    float screen_scale_ratio1, screen_scale_ratio2;
     SDL_Rect screen_rect;
-    SDL_Rect render_view_rect;
     int screen_bpp;
     char *version_str;
     int underline_value;
@@ -288,7 +276,7 @@ protected:
     void setStr( char **dst, const char *src, int num=-1 );
     
     void readToken();
-    
+
     /* ---------------------------------------- */
     /* Effect related variables */
     struct EffectLink{
@@ -507,9 +495,8 @@ protected:
     /* System customize related variables */
     char *textgosub_label;
     char *pretextgosub_label;
-    char *pretext_buf;
+    char **pretext_buf;
     char *loadgosub_label;
-    int  textgosub_clickstr_state;
 
     ScriptHandler script_h;
     

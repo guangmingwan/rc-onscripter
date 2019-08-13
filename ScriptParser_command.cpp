@@ -2,8 +2,8 @@
  *
  *  ScriptParser_command.cpp - Define command executer of ONScripter
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2018 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -25,9 +25,6 @@
 #include "ScriptParser.h"
 #include "Utils.h"
 #include <math.h>
-#if defined(LINUX) || defined(MACOSX) || defined(IOS)
-#include <sys/stat.h>
-#endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -139,7 +136,8 @@ int ScriptParser::textgosubCommand()
         errorAndExit( "textgosub: not in the define section" );
 
     setStr( &textgosub_label, script_h.readStr()+1 );
-
+    script_h.enableTextgosub(true);
+    
     return RET_CONTINUE;
 }
 
@@ -241,51 +239,6 @@ int ScriptParser::shadedistanceCommand()
     return RET_CONTINUE;
 }
 
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-#include "builtin_layer.h"
-#endif
-
-int ScriptParser::setlayerCommand()
-{
-    if ( current_mode != DEFINE_MODE )
-        errorAndExit( "setlayer: not in the define section" );
-
-    int no = script_h.readInt();
-    int interval = script_h.readInt();
-    const char *dll = script_h.readStr();
-
-    #ifndef USE_BUILTIN_LAYER_EFFECTS
-    utils::printError("setlayer: layer effect support not available (%d,%d,'%s')",
-        no, interval, dll);
-    return RET_CONTINUE;
-    #else
-    LayerInfo *layer = &layer_info[no];
-    layer->interval = interval;
-    if (layer->handler) delete layer->handler;
-    layer->handler = NULL;
-    Layer *handler = NULL;
-    const char *bslash = strrchr(dll, '\\');
-    if ((bslash && !strncmp(bslash + 1, "oldmovie.dll", 12)) ||
-        !strncmp(dll, "oldmovie.dll", 12)) {
-        handler = new OldMovieLayer(screen_width, screen_height);
-    } else if ((bslash && !strncmp(bslash + 1, "snow.dll", 8)) ||
-        !strncmp(dll, "snow.dll", 8)) {
-        handler = new FuruLayer(screen_width, screen_height, false, script_h.cBR);
-    } else if ((bslash && !strncmp(bslash + 1, "hana.dll", 8)) ||
-        !strncmp(dll, "hana.dll", 8)) {
-        handler = new FuruLayer(screen_width, screen_height, true, script_h.cBR);
-    } else {
-        utils::printError("setlayer: layer effect '%s' is not implemented.", dll);
-        return RET_CONTINUE;
-    }
-
-    utils::printInfo("Setup layer effect for '%s'.\n", dll);
-    layer->handler = handler;
-    #endif // ndef USE_BUILTIN_LAYER_EFFECTS
-
-    return RET_CONTINUE;
-}
-
 int ScriptParser::setkinsokuCommand()
 {
     if ( current_mode != DEFINE_MODE )
@@ -353,18 +306,6 @@ int ScriptParser::savedirCommand()
         // a workaround not to overwrite save_dir given in command line options
         save_dir = new char[ strlen(archive_path) + strlen(path) + 2 ];
         sprintf( save_dir, "%s%s%c", archive_path, path, DELIMITER );
-
-#if defined(LINUX) || defined(MACOSX) || defined(IOS)
-        struct stat buf;
-        if ( stat( save_dir, &buf ) != 0 ){
-            fprintf(stderr, "savedir: %s doesn't exist.\n", save_dir);
-            delete[] save_dir;
-            save_dir = NULL;
-        
-            return RET_CONTINUE;
-        }
-#endif
-        
         script_h.setSaveDir(save_dir);
         setStr(&save_dir_envdata, path);
     }
@@ -453,14 +394,19 @@ int ScriptParser::returnCommand()
         setCurrentLabel( label+1 );
 
     bool textgosub_flag = last_nest_info->textgosub_flag;
+    char *wait_script = last_nest_info->wait_script;
 
     last_nest_info = last_nest_info->previous;
     delete last_nest_info->next;
     last_nest_info->next = NULL;
     
-    // if this is the end of the line, pretext becomes enabled
-    if (textgosub_flag &&
-        (textgosub_clickstr_state & (CLICK_NEWPAGE | CLICK_EOL))){
+    if (textgosub_flag){
+        if (wait_script && label[0] != '*'){
+            script_h.setCurrent(wait_script);
+            return RET_CONTINUE;
+        }
+
+        // if this is the end of the line, pretext becomes enabled
         line_enter_status = 0;
         page_enter_status = 0;
     }
@@ -609,15 +555,6 @@ int ScriptParser::movCommand()
         setStr( &script_h.getVariableData(script_h.pushed_variable.var_no).str, buf );
     }
     else errorAndExit( "mov: no variable" );
-    
-    return RET_CONTINUE;
-}
-
-int ScriptParser::mode_wave_demoCommand()
-{
-    if (current_mode != DEFINE_MODE)
-        errorAndExit("mode_wave_demo: not in the define section");
-    mode_wave_demo_flag = true;
     
     return RET_CONTINUE;
 }
@@ -840,6 +777,7 @@ int ScriptParser::labellogCommand()
 int ScriptParser::kidokuskipCommand()
 {
     kidokuskip_flag = true;
+    kidokumode_flag = true;
     script_h.loadKidokuData();
     
     return RET_CONTINUE;
@@ -1041,7 +979,12 @@ void ScriptParser::gosubReal( const char *label, char *next_script, bool textgos
 
     last_nest_info = last_nest_info->next;
     last_nest_info->next_script = next_script;
-    last_nest_info->textgosub_flag = textgosub_flag;
+    pretext_buf = &last_nest_info->next_script;
+
+    if (textgosub_flag){
+        last_nest_info->textgosub_flag = true;
+        last_nest_info->wait_script = script_h.getWait();
+    }
 
     setCurrentLabel( label );
 }
@@ -1408,16 +1351,6 @@ int ScriptParser::breakCommand()
     else{
         break_flag = true;
     }
-    
-    return RET_CONTINUE;
-}
-
-int ScriptParser::autosaveoffCommand()
-{
-    if ( current_mode != DEFINE_MODE )
-        errorAndExit( "autosaveoff: not in the define section" );
-
-    autosaveoff_flag = true;
     
     return RET_CONTINUE;
 }

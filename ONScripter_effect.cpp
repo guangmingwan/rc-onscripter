@@ -2,8 +2,8 @@
  * 
  *  ONScripter_effect.cpp - Effect executer of ONScripter
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2018 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -29,34 +29,31 @@
 #define EFFECT_STRIPE_CURTAIN_WIDTH (24 * screen_ratio1 / screen_ratio2)
 #define EFFECT_QUAKE_AMP (12 * screen_ratio1 / screen_ratio2)
 
-void ONScripter::updateEffectDst()
-{
-    update_effect_dst = true;
-    dirty_rect.fill( screen_width, screen_height );
-};
-
-void ONScripter::generateEffectDst(int effect_no)
-{
-    int refresh_mode = refreshMode();
-
-    if (effect_no == 1)
-        refreshSurface( effect_dst_surface, &dirty_rect.bounding_box, refresh_mode );
-    else
-        refreshSurface( effect_dst_surface, NULL, refresh_mode );
-}
-
-bool ONScripter::setEffect( EffectLink *effect )
+bool ONScripter::setEffect( EffectLink *effect, bool generate_effect_dst, bool update_backup_surface )
 {
     if ( effect->effect == 0 ) return true;
+
+    if (update_backup_surface)
+        refreshSurface(backup_surface, &dirty_rect.bounding_box, REFRESH_NORMAL_MODE);
     
     int effect_no = effect->effect;
     if (effect_cut_flag && (skip_mode & SKIP_NORMAL || ctrl_pressed_status)) 
         effect_no = 1;
 
     SDL_BlitSurface( accumulation_surface, NULL, effect_src_surface, NULL );
-
-    generateEffectDst(effect_no);
-    update_effect_dst = false;
+        
+    if (generate_effect_dst){
+        int refresh_mode = refreshMode();
+        if (update_backup_surface && refresh_mode == REFRESH_NORMAL_MODE){
+            SDL_BlitSurface( backup_surface, &dirty_rect.bounding_box, effect_dst_surface, &dirty_rect.bounding_box );
+        }
+        else{
+            if (effect_no == 1)
+                refreshSurface( effect_dst_surface, &dirty_rect.bounding_box, refresh_mode );
+            else
+                refreshSurface( effect_dst_surface, NULL, refresh_mode );
+        }
+    }
     
     /* Load mask image */
     if ( effect_no == 15 || effect_no == 18 ){
@@ -74,16 +71,6 @@ bool ONScripter::setEffect( EffectLink *effect )
             utils::printInfo("dll effect: Got dll '%s'\n", effect->anim.image_name);
             if (!strncmp(effect->anim.image_name, "breakup.dll", 11))
                 initBreakup(effect->anim.image_name);
-#ifdef USE_BUILTIN_EFFECTS
-            else if (!strncmp(effect->anim.image_name, "cascade.dll", 11)) {
-            } else if (!strncmp(effect->anim.image_name, "whirl.dll", 9)) {
-              buildSinTable();
-              buildCosTable();
-              buildWhirlTable();
-            } else if (!strncmp(effect->anim.image_name, "trvswave.dll", 12)) {
-              buildSinTable();
-            }
-#endif
             dirty_rect.fill( screen_width, screen_height );
         }
     }
@@ -117,12 +104,7 @@ bool ONScripter::doEffect( EffectLink *effect, bool clear_dirty_region )
     int effect_no = effect->effect;
     if (effect_cut_flag && (skip_mode & SKIP_NORMAL || ctrl_pressed_status)) 
         effect_no = 1;
-    
-    if (update_effect_dst){
-        generateEffectDst(effect_no);
-        update_effect_dst = false;
-    }
-    
+
     int i, amp;
     int width, width2;
     int height, height2;
@@ -380,54 +362,49 @@ bool ONScripter::doEffect( EffectLink *effect, bool clear_dirty_region )
         drawEffect(&dst_rect, &src_rect, effect_dst_surface);
         break;
 
-      case (MAX_EFFECT_NUM + 3) : // flushout
+	  /*case (MAX_EFFECT_NUM + 3) : // flushout
         if (effect_counter > 0) {
-          width = 30 * effect_counter / effect_duration;
-          height = 30 * (effect_counter + effect_timer_resolution) / effect_duration;
-          if (height > width) {
-            int i, j, ii, jj;
-            int total_width = accumulation_surface->pitch / 4;
-            SDL_LockSurface(effect_src_surface);
-            SDL_LockSurface(accumulation_surface);
-            ONSBuf *src_buffer = (ONSBuf *)effect_src_surface->pixels;
+            width = 30 * effect_counter / effect_duration;
+		    height = 30 * (effect_counter + effect_timer_resolution) / effect_duration;
+		    if (height > width) {
+				int level = height;
+			    int i, j, ii, jj;
+#ifdef BPP16
+	            int total_width = accumulation_surface->pitch / 2;
+#else
+	            int total_width = accumulation_surface->pitch / 4;
+#endif
+				SDL_LockSurface(effect_src_surface);
+				SDL_LockSurface(accumulation_surface);
+				ONSBuf *src_buffer = (ONSBuf *)effect_src_surface->pixels;
 
-            ONSBuf *dst_buffer = (ONSBuf *)accumulation_surface->pixels;
-            const int factor = 32;
-            const int maxlevel = 30;
-            height += factor - maxlevel;
-            const int y_offset = screen_height*height / factor / 2;
-            const int x_offset = screen_width*height / factor / 2;
-            for (i = 0; i<screen_height; i++) {
-              ii = i*(factor - height) / factor + y_offset;
-              for (j = 0; j<screen_width; j++) {
-                jj = j*(factor - height) / factor + x_offset;
-                *dst_buffer++ = src_buffer[ii*total_width + jj];
-              }
-            }
-
-            SDL_UnlockSurface(accumulation_surface);
-            SDL_UnlockSurface(effect_src_surface);
-            alphaBlend(NULL, ALPHA_BLEND_CONST, 64, &dirty_rect.bounding_box, effect_tmp_surface, accumulation_surface, effect_tmp_surface);
-            alphaBlend(NULL, ALPHA_BLEND_CONST, effect_counter * 256 / effect_duration, &dirty_rect.bounding_box, effect_tmp_surface);
-          }
-        }
-        break;
+				ONSBuf *dst_buffer = (ONSBuf *)accumulation_surface->pixels;
+				const int factor = 32;
+				const int maxlevel = 30;
+				level += factor - maxlevel;
+				const int y_offset = screen_height*level / factor / 2;
+				const int x_offset = screen_width*level / factor / 2;
+				for (i = 0; i<screen_height; i++) {
+					ii = i*(factor - level) / factor + y_offset;
+					for (j = 0; j<screen_width; j++) {
+						jj = j*(factor - level) / factor + x_offset;
+						*dst_buffer++ = src_buffer[ii*total_width + jj];
+					}
+				}
+				SDL_UnlockSurface(accumulation_surface);
+				SDL_UnlockSurface(effect_src_surface);
+				alphaBlend(NULL, ALPHA_BLEND_CONST, 64, &dirty_rect.bounding_box);
+				alphaBlend(NULL, ALPHA_BLEND_CONST, effect_counter * 256 / effect_duration, &dirty_rect.bounding_box);
+		    }
+		}
+		break;
+		*/
 
       case 99: // dll-based
         if (effect->anim.image_name != NULL){
             if (!strncmp(effect->anim.image_name, "breakup.dll", 11)){
                 effectBreakup(effect->anim.image_name, effect_duration);
-            }
-#ifdef USE_BUILTIN_EFFECTS
-            else if (!strncmp(effect->anim.image_name, "cascade.dll", 11)) {
-              effectCascade(effect->anim.image_name, effect_duration);
-            } else if (!strncmp(effect->anim.image_name, "whirl.dll", 9)) {
-              effectWhirl(effect->anim.image_name, effect_duration);
-            } else if (!strncmp(effect->anim.image_name, "trvswave.dll", 12)) {
-              effectTrvswave(effect->anim.image_name, effect_duration);
-            }
-#endif
-            else {
+            } else {
                 // do crossfade
                 height = 256 * effect_counter / effect_duration;
                 alphaBlend( NULL, ALPHA_BLEND_CONST, height, &dirty_rect.bounding_box );

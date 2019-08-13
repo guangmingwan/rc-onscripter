@@ -2,8 +2,8 @@
  * 
  *  ONScripter_sound.cpp - Methods for playing sound
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2019 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -28,12 +28,49 @@
 #if defined(LINUX)
 #include <signal.h>
 #endif
-#if !defined(WINRT) && (defined(WIN32) || defined(_WIN32))
-#include <stdlib.h>
-#endif
 
 #ifdef ANDROID
-extern "C" void playVideoAndroid(const char *filename);
+extern "C"
+{
+#include <jni.h>
+#include <android/log.h>
+static JavaVM *jniVM = NULL;
+static jobject JavaONScripter = NULL;
+static jmethodID JavaPlayVideo = NULL;
+
+#ifndef SDL_JAVA_PACKAGE_PATH
+#error You have to define SDL_JAVA_PACKAGE_PATH to your package path with dots replaced with underscores, for example "com_example_SanAngeles"
+#endif
+#define JAVA_EXPORT_NAME2(name,package) Java_##package##_##name
+#define JAVA_EXPORT_NAME1(name,package) JAVA_EXPORT_NAME2(name,package)
+#define JAVA_EXPORT_NAME(name) JAVA_EXPORT_NAME1(name,SDL_JAVA_PACKAGE_PATH)
+
+JNIEXPORT jint JNICALL JAVA_EXPORT_NAME(ONScripter_nativeInitJavaCallbacks) (JNIEnv * jniEnv, jobject thiz)
+{
+    JavaONScripter = jniEnv->NewGlobalRef(thiz);
+    jclass JavaONScripterClass = jniEnv->GetObjectClass(JavaONScripter);
+    JavaPlayVideo = jniEnv->GetMethodID(JavaONScripterClass, "playVideo", "([C)V");
+}
+}
+
+void playVideoAndroid(const char *filename)
+{
+    JNIEnv * jniEnv = NULL;
+    jniVM->AttachCurrentThread(&jniEnv, NULL);
+
+    if (!jniEnv){
+        __android_log_print(ANDROID_LOG_ERROR, "ONS", "ONScripter::playVideoAndroid: Java VM AttachCurrentThread() failed");
+        return;
+    }
+
+    jchar *jc = new jchar[strlen(filename)];
+    for (int i=0 ; i<strlen(filename) ; i++)
+        jc[i] = filename[i];
+    jcharArray jca = jniEnv->NewCharArray(strlen(filename));
+    jniEnv->SetCharArrayRegion(jca, 0, strlen(filename), jc);
+    jniEnv->CallVoidMethod( JavaONScripter, JavaPlayVideo, jca );
+    delete[] jc;
+}
 #endif
 
 #if defined(IOS)
@@ -45,6 +82,7 @@ extern "C" void playVideoIOS(const char *filename, bool click_flag, bool loop_fl
 #endif
 
 #if defined(USE_SMPEG)
+#include <smpeg.h>
 extern "C" void mp3callback( void *userdata, Uint8 *stream, int len )
 {
     SMPEG_playAudio( (SMPEG*)userdata, stream, len );
@@ -71,11 +109,6 @@ int ONScripter::playSound(const char *filename, int format, bool loop_flag, int 
 
     long length = script_h.cBR->getFileLength( filename );
     if (length == 0) return SOUND_NONE;
-    if (!mode_wave_demo_flag &&
-        ((skip_mode & SKIP_NORMAL) || ctrl_pressed_status) && (format & SOUND_CHUNK) &&
-        ((channel < ONS_MIX_CHANNELS) || (channel == MIX_WAVE_CHANNEL))) {
-           return SOUND_NONE;
-    }
 
     unsigned char *buffer;
 
@@ -97,25 +130,25 @@ int ONScripter::playSound(const char *filename, int format, bool loop_flag, int 
 #if SDL_MIXER_MAJOR_VERSION >= 2
         music_info = Mix_LoadMUS_RW( SDL_RWFromMem( buffer, length ), 0);
 #else
-        music_info = Mix_LoadMUS_RW(SDL_RWFromMem(buffer, length));
+		music_info = Mix_LoadMUS_RW(SDL_RWFromMem(buffer, length));
 #endif
-        if (music_info == NULL) {
-            utils::printError("can't load music \"%s\": %s\n", filename, Mix_GetError());
-        }
+		if (music_info == nullptr) {
+			utils::printError("can't load music \"%s\": %s\n", filename, Mix_GetError());
+		}
         Mix_VolumeMusic( music_volume );
         if ( Mix_PlayMusic( music_info, (music_play_loop_flag&&music_loopback_offset==0.0)?-1:0 ) == 0 ){
             music_buffer = buffer;
             music_buffer_length = length;
             return SOUND_MUSIC;
         }
-        Mix_HookMusicFinished(musicFinishCallback);
+		Mix_HookMusicFinished(musicFinishCallback);
     }
     
     if (format & SOUND_CHUNK){
         Mix_Chunk *chunk = Mix_LoadWAV_RW(SDL_RWFromMem(buffer, length), 1);
-        if (chunk == NULL) {
-            utils::printError("can't load chunk \"%s\": %s\n", filename, Mix_GetError());
-        }
+		if (chunk == nullptr) {
+			utils::printError("can't load chunk \"%s\": %s\n", filename, Mix_GetError());
+		}
         if (playWave(chunk, format, loop_flag, channel) == 0){
             delete[] buffer;
             return SOUND_CHUNK;
@@ -216,31 +249,6 @@ int ONScripter::playMIDI(bool loop_flag)
     return 0;
 }
 
-#if defined(USE_SMPEG)
-struct OverlayInfo{
-    SDL_Overlay overlay;
-    SDL_mutex *mutex;
-};
-static void smpeg_filter_callback( SDL_Overlay * dst, SDL_Overlay * src, SDL_Rect * region, SMPEG_FilterInfo * filter_info, void * data )
-{
-    if (dst){
-        dst->w = 0;
-        dst->h = 0;
-    }
-
-    OverlayInfo *oi = (OverlayInfo*)data;
-
-    SDL_mutexP(oi->mutex);
-    memcpy(oi->overlay.pixels[0], src->pixels[0],
-           oi->overlay.w*oi->overlay.h + (oi->overlay.w/2)*(oi->overlay.h/2)*2);
-    SDL_mutexV(oi->mutex);
-}
-
-static void smpeg_filter_destroy( struct SMPEG_Filter * filter )
-{
-}
-#endif
-
 int ONScripter::playMPEG(const char *filename, bool click_flag, bool loop_flag)
 {
     unsigned long length = script_h.cBR->getFileLength( filename );
@@ -259,114 +267,73 @@ int ONScripter::playMPEG(const char *filename, bool click_flag, bool loop_flag)
     sprintf( absolute_filename, "%s%s", archive_path, filename );
     playVideoIOS(absolute_filename, click_flag, loop_flag);
     delete[] absolute_filename;
+    return 0;
 #endif
 
     int ret = 0;
-#if defined(USE_SMPEG)
-    stopSMPEG();
-    layer_smpeg_buffer = new unsigned char[length];
-    script_h.cBR->getFile( filename, layer_smpeg_buffer );
-    SMPEG_Info info;
-    layer_smpeg_sample = SMPEG_new_rwops( SDL_RWFromMem( layer_smpeg_buffer, length ), &info, 0 );
-    if (SMPEG_error( layer_smpeg_sample )){
-        stopSMPEG();
-        return ret;
-    }
+#if defined(USE_SMPEG) && !defined(USE_SDL_RENDERER)
+    unsigned char *mpeg_buffer = new unsigned char[length];
+    script_h.cBR->getFile( filename, mpeg_buffer );
+    SMPEG *mpeg_sample = SMPEG_new_rwops( SDL_RWFromMem( mpeg_buffer, length ), NULL, 0, 0);
 
-    SMPEG_enableaudio( layer_smpeg_sample, 0 );
-    if (audio_open_flag){
-        int mpegversion, frequency, layer, bitrate;
-        char mode[10];
-        sscanf(info.audio_string,
-               "MPEG-%d Layer %d %dkbit/s %dHz %s",
-               &mpegversion, &layer, &bitrate, &frequency, mode);
-        printf("MPEG-%d Layer %d %dkbit/s %dHz %s\n",
-               mpegversion, layer, bitrate, frequency, mode);
-        
-        openAudio(frequency);
+    if ( !SMPEG_error( mpeg_sample ) ){
+        SMPEG_enableaudio( mpeg_sample, 0 );
 
-        SMPEG_actualSpec( layer_smpeg_sample, &audio_format );
-        SMPEG_enableaudio( layer_smpeg_sample, 1 );
-    }
-    SMPEG_enablevideo( layer_smpeg_sample, 1 );
-    
-    SMPEG_setdisplay( layer_smpeg_sample, accumulation_surface, NULL,  NULL );
-
-    OverlayInfo oi;
-    Uint16 pitches[3];
-    Uint8 *pixels[3];
-    oi.overlay.format = SDL_YV12_OVERLAY;
-    oi.overlay.w = info.width;
-    oi.overlay.h = info.height;
-    oi.overlay.planes = 3;
-    pitches[0] = info.width;
-    pitches[1] = info.width/2;
-    pitches[2] = info.width/2;
-    oi.overlay.pitches = pitches;
-    Uint8 *pixel_buf = new Uint8[info.width*info.height + (info.width/2)*(info.height/2)*2];
-    pixels[0] = pixel_buf;
-    pixels[1] = pixel_buf + info.width*info.height;
-    pixels[2] = pixel_buf + info.width*info.height + (info.width/2)*(info.height/2);
-    oi.overlay.pixels = pixels;
-    oi.mutex = SDL_CreateMutex();
-
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12, SDL_TEXTUREACCESS_TARGET, info.width, info.height);
-
-    layer_smpeg_filter.data = &oi;
-    layer_smpeg_filter.callback = smpeg_filter_callback;
-    layer_smpeg_filter.destroy = smpeg_filter_destroy;
-    SMPEG_filter( layer_smpeg_sample, &layer_smpeg_filter );
-    SMPEG_setvolume( layer_smpeg_sample, music_volume );
-    SMPEG_loop( layer_smpeg_sample, loop_flag?1:0 );
-
-    if (info.has_audio) Mix_HookMusic( mp3callback, layer_smpeg_sample );
-    SMPEG_play( layer_smpeg_sample );
-
-    bool done_flag = false;
-    while( !(done_flag & click_flag) && SMPEG_status(layer_smpeg_sample) == SMPEG_PLAYING ){
-        SDL_Event event;
-
-        while( SDL_PollEvent( &event ) ){
-            switch (event.type){
-              case SDL_KEYUP:
-                if ( ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_RETURN ||
-                     ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_SPACE ||
-                     ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_ESCAPE )
-                    done_flag = true;
-                if ( ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_RCTRL)
-                    ctrl_pressed_status &= ~0x01;
-                    
-                if ( ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_LCTRL)
-                    ctrl_pressed_status &= ~0x02;
-                break;
-              case SDL_QUIT:
-                ret = 1;
-              case SDL_MOUSEBUTTONUP:
-                done_flag = true;
-                break;
-              default:
-                break;
-            }
+        if ( audio_open_flag ){
+            SMPEG_actualSpec( mpeg_sample, &audio_format );
+            SMPEG_enableaudio( mpeg_sample, 1 );
         }
-        SDL_mutexP(oi.mutex);
-        flushDirectYUV(&oi.overlay);
-        SDL_mutexV(oi.mutex);
-        SDL_Delay( 1 );
+        SMPEG_enablevideo( mpeg_sample, 1 );
+		typedef struct {
+			SMPEG_Frame *frame;
+			int frameCount = 0;
+			SDL_mutex *lock;
+		} update_context;
+		update_context context;
+		context.lock = SDL_CreateMutex();
+		SMPEG_setdisplay(mpeg_sample, [](void *data, SMPEG_Frame *frame) {
+			update_context *context = (update_context *)data;
+			context->frame = frame;
+			++context->frameCount; 
+		}, &context, context.lock);
+        SMPEG_setvolume( mpeg_sample, music_volume );
+        SMPEG_loop(mpeg_sample, loop_flag);
+
+        Mix_HookMusic( mp3callback, mpeg_sample );
+        SMPEG_play( mpeg_sample );
+
+        bool done_flag = false;
+        while( !(done_flag & click_flag) && SMPEG_status(mpeg_sample) == SMPEG_PLAYING ){
+            SDL_Event event;
+
+            while( SDL_PollEvent( &event ) ){
+                switch (event.type){
+                  case SDL_KEYUP:
+                    if ( ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_RETURN ||
+                         ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_SPACE ||
+                         ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_ESCAPE )
+                        done_flag = true;
+                    break;
+                  case SDL_QUIT:
+                    ret = 1;
+                  case SDL_MOUSEBUTTONUP:
+                    done_flag = true;
+                    break;
+                  default:
+                    break;
+                }
+            }
+            SDL_Delay( 10 );
+        }
+
+        SMPEG_stop( mpeg_sample );
+        Mix_HookMusic( NULL, NULL );
+        SMPEG_delete( mpeg_sample );
+		SDL_DestroyMutex(context.lock);
+
     }
-    Mix_HookMusic( NULL, NULL );
-    stopSMPEG();
-    openAudio();
-    delete[] pixel_buf;
-    SDL_DestroyMutex(oi.mutex);
-    texture = SDL_CreateTextureFromSurface(renderer, accumulation_surface);
-#elif !defined(WINRT) && (defined(WIN32) || defined(_WIN32))
-    char filename2[256];
-    strcpy(filename2, filename);
-    for (unsigned int i=0; i<strlen(filename2); i++)
-        if (filename2[i] == '/' || filename2[i] == '\\')
-            filename2[i] = DELIMITER;
-    system(filename2);
-#elif !defined(IOS)
+    delete[] mpeg_buffer;
+#else
     utils::printError( "mpegplay command is disabled.\n" );
 #endif
 
@@ -386,8 +353,28 @@ int ONScripter::playAVI( const char *filename, bool click_flag )
     return 0;
 #endif
 
-#if !defined(WINRT) && (defined(WIN32) || defined(_WIN32))
-    system(filename);
+#if defined(USE_AVIFILE) && !defined(USE_SDL_RENDERER)
+    char *absolute_filename = new char[ strlen(archive_path) + strlen(filename) + 1 ];
+    sprintf( absolute_filename, "%s%s", archive_path, filename );
+    for ( unsigned int i=0 ; i<strlen( absolute_filename ) ; i++ )
+        if ( absolute_filename[i] == '/' ||
+             absolute_filename[i] == '\\' )
+            absolute_filename[i] = DELIMITER;
+
+    if ( audio_open_flag ) Mix_CloseAudio();
+
+    AVIWrapper *avi = new AVIWrapper();
+    if ( avi->init( absolute_filename, false ) == 0 &&
+         avi->initAV( screen_surface, audio_open_flag ) == 0 ){
+        if (avi->play( click_flag )) return 1;
+    }
+    delete avi;
+    delete[] absolute_filename;
+
+    if ( audio_open_flag ){
+        Mix_CloseAudio();
+        openAudio();
+    }
 #else
     utils::printError( "avi command is disabled.\n" );
 #endif

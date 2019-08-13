@@ -2,8 +2,8 @@
 /*
  *  DirectReader.cpp - Reader from independent files
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2019 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -26,7 +26,7 @@
 #include "Utils.h"
 #include "coding2utf16.h"
 #include <bzlib.h>
-#if !defined(WIN32) && !defined(_WIN32) && !defined(MACOS9) && !defined(PSP) && !defined(__OS2__)
+#if !defined(WIN32) && !defined(MACOS9) && !defined(PSP) && !defined(__OS2__)
 #include <dirent.h>
 #endif
 
@@ -120,7 +120,7 @@ FILE *DirectReader::fopen(const char *path, const char *mode)
     FILE *fp = ::fopen( file_full_path, mode );
     if (fp) return fp;
 
-#if !defined(WIN32) && !defined(_WIN32) && !defined(MACOS9) && !defined(PSP) && !defined(__OS2__)
+#if !defined(WIN32) && !defined(MACOS9) && !defined(PSP) && !defined(__OS2__)
     char *cur_p = NULL;
     DIR *dp = NULL;
     len = strlen(archive_path);
@@ -282,13 +282,12 @@ int DirectReader::getRegisteredCompressionType( const char *file_name )
     return NO_COMPRESSION;
 }
     
-struct DirectReader::FileInfo DirectReader::getFileByIndex( unsigned int index )
+/*struct DirectReader::FileInfo DirectReader::getFileByIndex( unsigned int index )
 {
     DirectReader::FileInfo fi;
-    memset(&fi, 0, sizeof(DirectReader::FileInfo));
     
     return fi;
-}
+}*/
 
 FILE *DirectReader::getFileHandle( const char *file_name, int &compression_type, size_t *length )
 {
@@ -418,49 +417,33 @@ void DirectReader::convertCodingToUTF8( char *dst_buf, const char *src_buf )
     *dst_buf++ = 0;
 }
 
-void DirectReader::convertFromUTF8ToCoding(char *dst_buf, const char *src_buf)
-{
-    while(*src_buf){
-        if (*src_buf & 0x80){
-            unsigned short unicode = coding2utf16->convUTF8ToUTF16(&src_buf);
-            unsigned short local = coding2utf16->convUTF162Coding(unicode);
-            *dst_buf++ = (local>>8);
-            *dst_buf++ = local & 0xff;
-        }
-        else{
-            *dst_buf++ = *src_buf++;
-        }
-    }
-    *dst_buf++ = 0;
-}
-
 size_t DirectReader::decodeNBZ( FILE *fp, size_t offset, unsigned char *buf )
 {
     if (key_table_flag)
         utils::printError("may not decode NBZ with key_table enabled.\n");
     
     unsigned int original_length, count;
-    BZFILE *bfp;
-    void *unused;
-    int err, len, nunused;
+	BZFILE *bfp;
+	void *unused;
+	int err, len, nunused;
 
     fseek( fp, offset, SEEK_SET );
     original_length = count = readLong( fp );
 
-    bfp = BZ2_bzReadOpen( &err, fp, 0, 0, NULL, 0 );
-    if ( bfp == NULL || err != BZ_OK ) return 0;
+	bfp = BZ2_bzReadOpen( &err, fp, 0, 0, NULL, 0 );
+	if ( bfp == NULL || err != BZ_OK ) return 0;
 
-    while( err == BZ_OK && count > 0 ){
+	while( err == BZ_OK && count > 0 ){
         if ( count >= READ_LENGTH )
             len = BZ2_bzRead( &err, bfp, buf, READ_LENGTH );
         else
             len = BZ2_bzRead( &err, bfp, buf, count );
         count -= len;
-        buf += len;
-    }
+		buf += len;
+	}
 
-    BZ2_bzReadGetUnused(&err, bfp, &unused, &nunused );
-    BZ2_bzReadClose( &err, bfp );
+	BZ2_bzReadGetUnused(&err, bfp, &unused, &nunused );
+	BZ2_bzReadClose( &err, bfp );
 
     return original_length - count;
 }
@@ -468,12 +451,12 @@ size_t DirectReader::decodeNBZ( FILE *fp, size_t offset, unsigned char *buf )
 size_t DirectReader::encodeNBZ( FILE *fp, size_t length, unsigned char *buf )
 {
     unsigned int bytes_in, bytes_out;
-    int err;
+	int err;
 
-    BZFILE *bfp = BZ2_bzWriteOpen( &err, fp, 9, 0, 30 );
-    if ( bfp == NULL || err != BZ_OK ) return 0;
+	BZFILE *bfp = BZ2_bzWriteOpen( &err, fp, 9, 0, 30 );
+	if ( bfp == NULL || err != BZ_OK ) return 0;
 
-    while( err == BZ_OK && length > 0 ){
+	while( err == BZ_OK && length > 0 ){
         if ( length >= WRITE_LENGTH ){
             BZ2_bzWrite( &err, bfp, buf, WRITE_LENGTH );
             buf += WRITE_LENGTH;
@@ -483,9 +466,9 @@ size_t DirectReader::encodeNBZ( FILE *fp, size_t length, unsigned char *buf )
             BZ2_bzWrite( &err, bfp, buf, length );
             break;
         }
-    }
+	}
 
-    BZ2_bzWriteClose( &err, bfp, 0, &bytes_in, &bytes_out );
+	BZ2_bzWriteClose( &err, bfp, 0, &bytes_in, &bytes_out );
     
     return bytes_out;
 }

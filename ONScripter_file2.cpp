@@ -2,8 +2,8 @@
  *
  *  ONScripter_file2.cpp - FILE I/O of ONScripter
  *
- *  Copyright (c) 2001-2016 Ogapee. All rights reserved.
- *            (C) 2014-2016 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2013 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -26,7 +26,6 @@
 
 int ONScripter::loadSaveFile2( int file_version )
 {
-    stopSMPEG();
     deleteNestInfo();
     
     int i, j;
@@ -128,9 +127,6 @@ int ONScripter::loadSaveFile2( int file_version )
         readInt(); // -1
     }
     
-    for (i=0 ; i<MAX_TEXTURE_NUM ; i++) texture_info[i].reset();
-    smpeg_info = NULL;
-
     for ( i=0 ; i<MAX_SPRITE_NUM ; i++ ){
         AnimationInfo *ai = &sprite_info[i];
         
@@ -186,7 +182,6 @@ int ONScripter::loadSaveFile2( int file_version )
         num_nest = readInt();
         file_io_buf_ptr += num_nest*4;
     }
-    pretext_buf = last_nest_info->next_script;
 
     if (readInt() == 1) monocro_flag = true;
     else                monocro_flag = false;
@@ -323,14 +318,11 @@ int ONScripter::loadSaveFile2( int file_version )
     readInt(); // 0
     readInt(); // 1
     btndef_info.remove();
-    if (blt_texture != NULL) SDL_DestroyTexture(blt_texture);
-    blt_texture = NULL;
     readStr( &btndef_info.image_name );
     if ( btndef_info.image_name && btndef_info.image_name[0] != '\0' ){
         parseTaggedString( &btndef_info );
         setupAnimationInfo( &btndef_info );
-
-        SDL_SetSurfaceBlendMode(btndef_info.image_surface, SDL_BLENDMODE_NONE);
+		SDL_SetSurfaceBlendMode(btndef_info.image_surface, SDL_BLENDMODE_NONE);
     }
 
     if ( file_version >= 202 )
@@ -381,10 +373,6 @@ int ONScripter::loadSaveFile2( int file_version )
             else                  ai->visible = false;
             ai->trans = readInt();
             ai->blending_mode = readInt();
-            ai->affine_pos.x = 0;
-            ai->affine_pos.y = 0;
-            ai->affine_pos.w = ai->pos.w;
-            ai->affine_pos.h = ai->pos.h;
             ai->calcAffineMatrix();
         }
         

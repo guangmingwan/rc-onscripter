@@ -2,8 +2,8 @@
  *
  *  ScriptHandler.cpp - Script manipulation class
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2018 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -24,12 +24,9 @@
 
 #include "ScriptHandler.h"
 #include "Utils.h"
-#include "coding2utf16.h"
-
-extern Coding2UTF16 *coding2utf16;
 
 #define TMP_SCRIPT_BUF_LEN 4096
-#define STRING_BUFFER_LENGTH 4096
+#define STRING_BUFFER_LENGTH 2048
 
 #define SKIP_SPACE(p) while ( *(p) == ' ' || *(p) == '\t' ) (p)++
 
@@ -121,43 +118,38 @@ void ScriptHandler::reset()
     text_flag = true;
     linepage_flag = false;
     english_mode = false;
+    textgosub_flag = false;
     skip_enabled = false;
     if (clickstr_list){
         delete[] clickstr_list;
         clickstr_list = NULL;
     }
-
-    is_internal_script = false;
-    ScriptContext *sc = root_script_context.next;
-    while (sc){
-        ScriptContext *tmp = sc;
-        sc = sc->next;
-        delete tmp;
-    };
-    last_script_context = &root_script_context;
-    last_script_context->next = NULL;
+    internal_current_script = NULL;
 }
 
 void ScriptHandler::setSaveDir(const char *path)
 {
     if (save_dir) delete[] save_dir;
-    save_dir = new char[ strlen(path)+1 ];
+    save_dir = new char[ strlen(path) ];
     strcpy(save_dir, path);
 }
 
 FILE *ScriptHandler::fopen( const char *path, const char *mode, bool use_save_dir )
 {
-    char filename[256];
-    if (use_save_dir && save_dir)
+    char *filename;
+    if (use_save_dir && save_dir){
+        filename = new char[strlen(save_dir)+strlen(path)+1];
         sprintf( filename, "%s%s", save_dir, path );
-    else
+    }
+    else{
+        filename = new char[strlen(archive_path)+strlen(path)+1];
         sprintf( filename, "%s%s", archive_path, path );
+    }
 
-    for ( unsigned int i=0 ; i<strlen( filename ) ; i++ )
-        if ( filename[i] == '/' || filename[i] == '\\' )
-            filename[i] = DELIMITER;
+    FILE *fp = ::fopen( filename, mode );
+    delete[] filename;
 
-    return ::fopen( filename, mode );
+    return fp;
 }
 
 void ScriptHandler::setKeyTable( const unsigned char *key_table )
@@ -207,7 +199,6 @@ const char *ScriptHandler::readToken()
 #endif             
              (!english_mode && ch == '>') ||
              ch == '!' || ch == '#' || ch == ',' || ch == '"'){ // text
-        bool ignore_clickstr_flag = false;
         while(1){
             if ( IS_TWO_BYTE(ch) ){
                 addStringBuffer( ch );
@@ -215,13 +206,8 @@ const char *ScriptHandler::readToken()
                 if (ch == 0x0a || ch == '\0') break;
                 addStringBuffer( ch );
                 buf++;
-                if (!wait_script && !ignore_clickstr_flag &&
-                    checkClickstr(buf-2) > 0)
-                    wait_script = buf;
-                ignore_clickstr_flag = false;
             }
             else{
-                ignore_clickstr_flag = false;
                 if (ch == '%' || ch == '?'){
                     addIntVariable(&buf);
                     SKIP_SPACE(buf);
@@ -234,8 +220,7 @@ const char *ScriptHandler::readToken()
                     if (ch == 0x0a || ch == '\0') break;
                     addStringBuffer( ch );
                     buf++;
-                    if (ch == '_') ignore_clickstr_flag = true;
-                    if (!wait_script && (ch == '@' || ch == '\\')) wait_script = buf;
+                    if (!wait_script && ch == '@') wait_script = buf;
                 }
             }
             ch = *buf;
@@ -444,40 +429,28 @@ void ScriptHandler::popCurrent()
 
 void ScriptHandler::enterExternalScript(char *pos)
 {
-    ScriptContext *sc = new ScriptContext;
-    last_script_context->next = sc;
-    sc->prev = last_script_context;
-    last_script_context = sc;
-    
-    is_internal_script = true;
-    sc->current_script = current_script;
+    internal_current_script = current_script;
     current_script = pos;
-    sc->next_script = next_script;
+    internal_next_script = next_script;
     next_script = pos;
-    sc->end_status = end_status;
-    sc->current_variable = current_variable;
-    sc->pushed_variable = pushed_variable;
+    internal_end_status = end_status;
+    internal_current_variable = current_variable;
+    internal_pushed_variable = pushed_variable;
 }
 
 void ScriptHandler::leaveExternalScript()
 {
-    ScriptContext *sc = last_script_context;
-    last_script_context = sc->prev;
-    last_script_context->next = NULL;
-    if (last_script_context->prev == NULL)
-        is_internal_script = false;
-
-    current_script = sc->current_script;
-    next_script = sc->next_script;
-    end_status = sc->end_status;
-    current_variable = sc->current_variable;
-    pushed_variable = sc->pushed_variable;
-    delete sc;
+    current_script = internal_current_script;
+    internal_current_script = NULL;
+    next_script = internal_next_script;
+    end_status = internal_end_status;
+    current_variable = internal_current_variable;
+    pushed_variable = internal_pushed_variable;
 }
 
 bool ScriptHandler::isExternalScript()
 {
-    return !is_internal_script;
+    return (internal_current_script != NULL);
 }
 
 int ScriptHandler::getOffset( char *pos )
@@ -583,7 +556,7 @@ bool ScriptHandler::isKidoku()
 
 void ScriptHandler::markAsKidoku( char *address )
 {
-    if (!kidokuskip_flag || is_internal_script) return;
+    if (!kidokuskip_flag || internal_current_script != NULL) return;
 
     int offset = current_script - script_buffer;
     if ( address ) offset = address - script_buffer;
@@ -605,7 +578,7 @@ void ScriptHandler::saveKidokuData()
     FILE *fp;
 
     if ( ( fp = fopen( "kidoku.dat", "wb", true ) ) == NULL ){
-        utils::printError("can't write kidoku.dat\n");
+		utils::printError("can't write kidoku.dat\n");
         return;
     }
 
@@ -647,6 +620,11 @@ void ScriptHandler::addStrVariable(char **buf)
             addStringBuffer( vd.str[i] );
         }
     }
+}
+
+void ScriptHandler::enableTextgosub(bool val)
+{
+    textgosub_flag = val;
 }
 
 void ScriptHandler::setClickstr(const char *list)
@@ -805,24 +783,25 @@ int ScriptHandler::getStringFromInteger( char *buffer, int no, int num_column, b
     int c = 0;
     if (is_zero_inserted){
         for (i=0 ; i<num_space ; i++){
-            buffer[c++] = coding2utf16->num_str[0];
-            buffer[c++] = coding2utf16->num_str[1];
+            buffer[c++] = ((char*)"£°")[0];
+            buffer[c++] = ((char*)"£°")[1];
         }
     }
     else{
         for (i=0 ; i<num_space ; i++){
-            buffer[c++] = coding2utf16->space[0];
-            buffer[c++] = coding2utf16->space[1];
+            buffer[c++] = ((char*)"¡¡")[0];
+            buffer[c++] = ((char*)"¡¡")[1];
         }
     }
     if (num_minus == 1){
-        buffer[c++] = coding2utf16->minus[0];
-        buffer[c++] = coding2utf16->minus[1];
+        buffer[c++] = "£­"[0];
+        buffer[c++] = "£­"[1];
     }
     c = (num_column-1)*2;
+    char num_str[] = "£°£±£²£³£´£µ£¶£·£¸£¹";
     for (i=0 ; i<num_digit ; i++){
-        buffer[c] = coding2utf16->num_str[no % 10 * 2];
-        buffer[c + 1] = coding2utf16->num_str[no % 10 * 2 + 1];
+        buffer[c]   = num_str[ no % 10 * 2];
+        buffer[c+1] = num_str[ no % 10 * 2 + 1];
         no /= 10;
         c -= 2;
     }
@@ -919,7 +898,7 @@ void ScriptHandler::addStrAlias( const char *str1, const char *str2 )
 
 void ScriptHandler::errorAndExit( const char *str )
 {
-    utils::printError( " **** Script error, %s [%s] ***\n", str, string_buffer);
+	utils::printError( " **** Script error, %s [%s] ***\n", str, string_buffer);
     exit(-1);
 }
 
@@ -984,7 +963,7 @@ int ScriptHandler::readScript( char *path )
     }
 
     if (fp == NULL){
-        utils::printError( "can't open any of 0.txt, 00.txt, nscript.dat and nscript.___\n");
+		utils::printError( "can't open any of 0.txt, 00.txt, nscript.dat and nscript.___\n");
         return -1;
     }
     
@@ -1210,7 +1189,6 @@ int ScriptHandler::labelScript()
                 buf++;
                 current_line++;
             }
-            SKIP_SPACE( buf );
             label_info[ label_counter ].start_address = buf;
         }
         else{
@@ -1537,12 +1515,12 @@ void ScriptHandler::readNextOp( char **buf, int *op, int *num )
         else                 (*buf)++;
         SKIP_SPACE(*buf);
     }
-
-    SKIP_SPACE(*buf);
-    if ( (*buf)[0] == '-' ){
-        minus_flag = true;
-        (*buf)++;
-        SKIP_SPACE(*buf);
+    else{
+        if ( (*buf)[0] == '-' ){
+            minus_flag = true;
+            (*buf)++;
+            SKIP_SPACE(*buf);
+        }
     }
 
     if ( (*buf)[0] == '(' ){

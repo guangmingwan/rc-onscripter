@@ -2,8 +2,8 @@
  * 
  *  onscripter_main.cpp -- main function of ONScripter
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2014-2019 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -29,7 +29,7 @@
 #include "version.h"
 
 ONScripter ons;
-Coding2UTF16 *coding2utf16 = NULL;
+Coding2UTF16 *coding2utf16 = nullptr;
 
 #if defined(IOS)
 #import <Foundation/NSArray.h>
@@ -40,12 +40,46 @@ Coding2UTF16 *coding2utf16 = NULL;
 #import "MoviePlayer.h"
 #endif
 
-#ifdef ANDROID
-#include <unistd.h>
-#endif
+#if defined(PSP)
+#include <pspkernel.h>
+#include <psputility.h>
+#include <psppower.h>
+#include <ctype.h>
 
-#ifdef WINRT
-#include "ScriptSelector.h"
+PSP_HEAP_SIZE_KB(-1);
+
+int psp_power_resume_number = 0;
+
+int exit_callback(int arg1, int arg2, void *common)
+{
+    ons.endCommand();
+    sceKernelExitGame();
+    return 0;
+}
+
+int power_callback(int unknown, int pwrflags, void *common)
+{
+    if (pwrflags & PSP_POWER_CB_RESUMING) psp_power_resume_number++;
+    return 0;
+}
+
+int CallbackThread(SceSize args, void *argp)
+{
+    int cbid;
+    cbid = sceKernelCreateCallback("Exit Callback", exit_callback, NULL);
+    sceKernelRegisterExitCallback(cbid);
+    cbid = sceKernelCreateCallback("Power Callback", power_callback, NULL);
+    scePowerRegisterCallback(0, cbid);
+    sceKernelSleepThreadCB();
+    return 0;
+}
+
+int SetupCallbacks(void)
+{
+    int thid = sceKernelCreateThread("update_thread", CallbackThread, 0x11, 0xFA0, 0, 0);
+    if (thid >= 0) sceKernelStartThread(thid, 0, 0);
+    return thid;
+}
 #endif
 
 void optionHelp()
@@ -65,9 +99,6 @@ void optionHelp()
     printf( "      --render-font-outline\trender the outline of a text instead of casting a shadow\n");
     printf( "      --edit\t\tenable online modification of the volume and variables when 'z' is pressed\n");
     printf( "      --key-exe file\tset a file (*.EXE) that includes a key table\n");
-    printf( "      --enc:sjis\tuse sjis coding script\n");
-    printf( "      --debug:1\t\tprint debug info\n");
-    printf( "      --fontcache\tcache default font\n");
     printf( "  -h, --help\t\tshow this help and exit\n");
     printf( "  -v, --version\t\tshow the version information and exit\n");
     exit(0);
@@ -76,149 +107,123 @@ void optionHelp()
 void optionVersion()
 {
     printf("Written by Ogapee <ogapee@aqua.dti2.ne.jp>\n\n");
-    printf("Copyright (c) 2001-2018 Ogapee.\n\
-                              (C) 2014-2018 jh10001<jh10001@live.cn>\n");
+    printf("Copyright (c) 2001-2014 Ogapee.\n\
+    		          (C) 2014 jh10001");
     printf("This is free software; see the source for copying conditions.\n");
     exit(0);
 }
-
-#ifdef ANDROID
-extern "C"
-{
-#include <jni.h>
-#include <android/log.h>
-static JavaVM *jniVM = NULL;
-static jobject JavaONScripter = NULL;
-static jmethodID JavaPlayVideo = NULL;
-static jmethodID JavaGetFD = NULL;
-static jmethodID JavaMkdir = NULL;
-
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
-{
-    jniVM = vm;
-    return JNI_VERSION_1_2;
-};
-
-JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved)
-{
-    jniVM = vm;
-};
-
-#ifndef SDL_JAVA_PACKAGE_PATH
-#error You have to define SDL_JAVA_PACKAGE_PATH to your package path with dots replaced with underscores, for example "com_example_SanAngeles"
-#endif
-#define JAVA_EXPORT_NAME2(name,package) Java_##package##_##name
-#define JAVA_EXPORT_NAME1(name,package) JAVA_EXPORT_NAME2(name,package)
-#define JAVA_EXPORT_NAME(name) JAVA_EXPORT_NAME1(name,SDL_JAVA_PACKAGE_PATH)
-
-JNIEXPORT jint JNICALL JAVA_EXPORT_NAME(ONScripter_nativeInitJavaCallbacks) (JNIEnv * jniEnv, jobject thiz)
-{
-    JavaONScripter = jniEnv->NewGlobalRef(thiz);
-    jclass JavaONScripterClass = jniEnv->GetObjectClass(JavaONScripter);
-    JavaPlayVideo = jniEnv->GetMethodID(JavaONScripterClass, "playVideo", "([C)V");
-    JavaGetFD = jniEnv->GetMethodID(JavaONScripterClass, "getFD", "([CI)I");
-    JavaMkdir = jniEnv->GetMethodID(JavaONScripterClass, "mkdir", "([C)I");
-    return 0;
-}
-
-JNIEXPORT jint JNICALL 
-JAVA_EXPORT_NAME(ONScripter_nativeGetWidth) ( JNIEnv*  env, jobject thiz )
-{
-    return ons.getWidth();
-}
-
-JNIEXPORT jint JNICALL 
-JAVA_EXPORT_NAME(ONScripter_nativeGetHeight) ( JNIEnv*  env, jobject thiz )
-{
-    return ons.getHeight();
-}
-
-void playVideoAndroid(const char *filename)
-{
-    JNIEnv * jniEnv = NULL;
-    jniVM->AttachCurrentThread(&jniEnv, NULL);
-
-    if (!jniEnv){
-        __android_log_print(ANDROID_LOG_ERROR, "ONS", "ONScripter::playVideoAndroid: Java VM AttachCurrentThread() failed");
-        return;
-    }
-
-    jchar *jc = new jchar[strlen(filename)];
-    for (int i=0 ; i<strlen(filename) ; i++)
-        jc[i] = filename[i];
-    jcharArray jca = jniEnv->NewCharArray(strlen(filename));
-    jniEnv->SetCharArrayRegion(jca, 0, strlen(filename), jc);
-    jniEnv->CallVoidMethod( JavaONScripter, JavaPlayVideo, jca );
-    jniEnv->DeleteLocalRef(jca);
-    delete[] jc;
-}
-
-#undef fopen
-FILE *fopen_ons(const char *path, const char *mode)
-{
-    int mode2 = 0;
-    if (mode[0] == 'w') mode2 = 1;
-
-    FILE *fp = fopen(path, mode);
-    if (fp || mode2 ==0) return fp;
-    
-    JNIEnv * jniEnv = NULL;
-    jniVM->AttachCurrentThread(&jniEnv, NULL);
-
-    if (!jniEnv){
-        __android_log_print(ANDROID_LOG_ERROR, "ONS", "ONScripter::getFD: Java VM AttachCurrentThread() failed");
-        return NULL;
-    }
-
-    jchar *jc = new jchar[strlen(path)];
-    for (int i=0 ; i<strlen(path) ; i++)
-        jc[i] = path[i];
-    jcharArray jca = jniEnv->NewCharArray(strlen(path));
-    jniEnv->SetCharArrayRegion(jca, 0, strlen(path), jc);
-    int fd = jniEnv->CallIntMethod( JavaONScripter, JavaGetFD, jca, mode2 );
-    jniEnv->DeleteLocalRef(jca);
-    delete[] jc;
-
-    return fdopen(fd, mode);
-}
-
-#undef mkdir
-int mkdir_ons(const char *pathname, mode_t mode)
-{
-    JNIEnv * jniEnv = NULL;
-    jniVM->AttachCurrentThread(&jniEnv, NULL);
-
-    if (!jniEnv){
-        __android_log_print(ANDROID_LOG_ERROR, "ONS", "ONScripter::mkdir: Java VM AttachCurrentThread() failed");
-        return -1;
-    }
-
-    jchar *jc = new jchar[strlen(pathname)];
-    for (int i=0 ; i<strlen(pathname) ; i++)
-        jc[i] = pathname[i];
-    jcharArray jca = jniEnv->NewCharArray(strlen(pathname));
-    jniEnv->SetCharArrayRegion(jca, 0, strlen(pathname), jc);
-    int ret = jniEnv->CallIntMethod( JavaONScripter, JavaMkdir, jca );
-    jniEnv->DeleteLocalRef(jca);
-    delete[] jc;
-
-    return ret;
-}
-}
-#endif
 
 #if defined(IOS)
 extern "C" void playVideoIOS(const char *filename, bool click_flag, bool loop_flag)
 {
     NSString *str = [[NSString alloc] initWithUTF8String:filename];
     id obj = [MoviePlayer alloc];
-    [[obj init] play:str click : click_flag loop : loop_flag];
+    [[obj init] play:str click:click_flag loop:loop_flag];
     [obj release];
 }
 #endif
 
-void parseOption(int argc, char *argv[]) {
-    while (argc > 0) {
+#ifdef WINRT
+#include "windows.h"
+BOOL WCharToMByte(LPCWSTR lpcwszStr, LPSTR lpszStr, DWORD dwSize)
+{
+	DWORD dwMinSize;
+	dwMinSize = WideCharToMultiByte(CP_OEMCP,NULL,lpcwszStr,-1,NULL,0,NULL,FALSE);
+	if (dwSize < dwMinSize) {
+		return FALSE;
+	}
+	WideCharToMultiByte(CP_OEMCP, NULL, lpcwszStr, -1, lpszStr, dwSize, NULL, FALSE);
+	return TRUE;
+}
+#endif
+
+#if defined(PSP)
+extern "C" int main( int argc, char **argv )
+#else
+int main( int argc, char *argv[] )
+#endif
+{
+    utils::printInfo("ONScripter version %s(%d.%02d)\n", ONS_VERSION, NSC_VERSION/100, NSC_VERSION%100 );
+
+#if defined(PSP)
+    ons.disableRescale();
+    ons.enableButtonShortCut();
+    SetupCallbacks();
+#elif defined(WINRT)
+	char currentDir[256];
+	auto appInstallDirectory = Windows::Storage::ApplicationData::Current->LocalFolder->Path + "\\ons\\";
+	const wchar_t *wText = appInstallDirectory->Begin();
+	WCharToMByte(wText,currentDir,256);
+	char* cptr = currentDir;
+	int i, len = strlen(currentDir);
+	for (i = len - 1; i>0; i--) {
+		if (cptr[i] == '\\' || cptr[i] == '/')
+			break;
+	}
+	cptr[i] = '\0';
+	ons.setArchivePath(currentDir);
+	ons.disableRescale();
+	ons.enableButtonShortCut();
+#elif defined(WINCE)
+    char currentDir[256];
+    strcpy(currentDir, argv[0]);
+    char* cptr = currentDir;
+    int i, len = strlen(currentDir);
+    for(i=len-1; i>0; i--){
+        if(cptr[i] == '\\' || cptr[i] == '/')
+            break;
+    }
+    cptr[i] = '\0';
+    ons.setArchivePath(currentDir);
+    ons.disableRescale();
+    ons.enableButtonShortCut();
+#elif defined(ANDROID) 
+    ons.enableButtonShortCut();
+#endif
+
+#if defined(IOS)
+#if defined(HAVE_CONTENTS)
+    if ([[[DataCopier alloc] init] copy]) exit(-1);
+#endif
+
+    // scripts and archives are stored under /Library/Caches
+    NSArray* cpaths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+    NSString* cpath = [[cpaths objectAtIndex:0] stringByAppendingPathComponent:@"ONS"];
+    char filename[256];
+    strcpy(filename, [cpath UTF8String]);
+    ons.setArchivePath(filename);
+
+    // output files are stored under /Documents
+    NSArray* dpaths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString* dpath = [[dpaths objectAtIndex:0] stringByAppendingPathComponent:@"ONS"];
+    strcpy(filename, [dpath UTF8String]);
+    ons.setSaveDir(filename);
+
+#if defined(ZIP_URL)
+    if ([[[DataDownloader alloc] init] download]) exit(-1);
+#endif
+
+#if defined(USE_SELECTOR)
+    // scripts and archives are stored under /Library/Caches
+    cpath = [[[ScriptSelector alloc] initWithStyle:UITableViewStylePlain] select];
+    strcpy(filename, [cpath UTF8String]);
+    ons.setArchivePath(filename);
+
+    // output files are stored under /Documents
+    dpath = [[dpaths objectAtIndex:0] stringByAppendingPathComponent:[cpath lastPathComponent]];
+    strcpy(filename, [dpath UTF8String]);
+    ons.setSaveDir(filename);
+#endif
+
+#if defined(RENDER_FONT_OUTLINE)
+    ons.renderFontOutline();
+#endif
+#endif
+
+    // ----------------------------------------
+    // Parse options
+    argv++;
+    while( argc > 1 ){
         if ( argv[0][0] == '-' ){
             if ( !strcmp( argv[0]+1, "h" ) || !strcmp( argv[0]+1, "-help" ) ){
                 optionHelp();
@@ -280,30 +285,16 @@ void parseOption(int argc, char *argv[]) {
                 argv++;
                 ons.setKeyEXE(argv[0]);
             }
-            else if (!strcmp(argv[0]+1, "-enc:sjis")){
-                if (coding2utf16 == NULL) coding2utf16 = new SJIS2UTF16();
-            }
-            else if (!strcmp(argv[0]+1, "-debug:1")){
-                ons.setDebugLevel(1);
-            }
-            else if (!strcmp(argv[0]+1, "-fontcache")){
-                ons.setFontCache();
-            }
-			else if (!strcmp(argv[0]+1, "-no-vsync")){
-			    ons.setVsyncOff();
+			else if (!strcmp(argv[0] + 1, "-enc:sjis")) {
+				if (coding2utf16 == nullptr) coding2utf16 = new SJIS2UTF16();
 			}
-#if defined(ANDROID)
-            else if ( !strcmp(argv[0]+1, "-compatible") ){
-                ons.setCompatibilityMode();
-            }
-            else if ( !strcmp(argv[0] + 1, "-save-dir") ){
-                argc--;
-                argv++;
-                ons.setSaveDir(argv[0]);
+#if defined(ANDROID) 
+            else if (!strcmp(argv[0] + 1, "-compatible")){
+				ons.setCompatibilityMode(); 
             }
 #endif
             else{
-                utils::printInfo(" unknown option %s\n", argv[0]);
+                utils::printInfo(" unknown option %s\n", argv[0] );
             }
         }
         else{
@@ -312,100 +303,14 @@ void parseOption(int argc, char *argv[]) {
         argc--;
         argv++;
     }
-}
 
-int main(int argc, char *argv[])
-{
-    utils::printInfo("ONScripter-Jh version %s (%s, %d.%02d)\n", ONS_JH_VERSION, ONS_VERSION, NSC_VERSION / 100, NSC_VERSION % 100);
-
-#if defined(PSP)
-    ons.disableRescale();
-    ons.enableButtonShortCut();
-    SetupCallbacks();
-#elif defined(WINRT)
-    {
-        ScriptSelector ss;
-        ons.setArchivePath(ss.selectedPath.c_str());
-    }
-    ons.disableRescale();
-#elif defined(ANDROID)
-    ons.enableButtonShortCut();
-#endif
-
-#if defined(IOS)
-#if defined(HAVE_CONTENTS)
-    if ([[[DataCopier alloc] init] copy]) exit(-1);
-#endif
-
-    // scripts and archives are stored under /Library/Caches
-    NSArray* cpaths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-    NSString* cpath = [[cpaths objectAtIndex : 0] stringByAppendingPathComponent:@"ONS"];
-    char filename[256];
-    strcpy(filename, [cpath UTF8String]);
-    ons.setArchivePath(filename);
-
-    // output files are stored under /Documents
-    NSArray* dpaths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    NSString* dpath = [[dpaths objectAtIndex : 0] stringByAppendingPathComponent:@"ONS"];
-    strcpy(filename, [dpath UTF8String]);
-    ons.setSaveDir(filename);
-
-#if defined(ZIP_URL)
-    if ([[[DataDownloader alloc] init] download]) exit(-1);
-#endif
-
-#if defined(USE_SELECTOR)
-    // scripts and archives are stored under /Library/Caches
-    cpath = [[[ScriptSelector alloc] initWithStyle:UITableViewStylePlain] select];
-    strcpy(filename, [cpath UTF8String]);
-    ons.setArchivePath(filename);
-
-    // output files are stored under /Documents
-    dpath = [[dpaths objectAtIndex : 0] stringByAppendingPathComponent:[cpath lastPathComponent]];
-    NSFileManager *fm = [NSFileManager defaultManager];
-    [fm createDirectoryAtPath : dpath withIntermediateDirectories : YES attributes : nil error : nil];
-    strcpy(filename, [dpath UTF8String]);
-    ons.setSaveDir(filename);
-#endif
-
-#if defined(RENDER_FONT_OUTLINE)
-    ons.renderFontOutline();
-#endif
-#endif
-
-    // ----------------------------------------
-    // Parse options
-    argv++;
-    parseOption(argc - 1, argv);
-    const char *argfilename = "ons_args";
-    FILE *fp = NULL;
-    if (ons.getArchivePath()) {
-        size_t len = strlen(ons.getArchivePath()) + strlen(argfilename) + 1;
-        char *full_path = new char[len];
-        sprintf(full_path, "%s%s", ons.getArchivePath(), argfilename);
-        fp = fopen(full_path, "r");
-        delete[] full_path;
-    }
-    else fp = fopen(argfilename, "r");
-    if (fp) {
-        char **args = new char*[16];
-        int argn = 0;
-        args[argn] = new char[64];
-        while (argn < 16 && (fscanf(fp, "%s", args[argn]) > 0)) {
-            ++argn;
-            if (argn < 16) args[argn] = new char[64];
-        }
-        parseOption(argn, args);
-        for (int i = 0; i < argn; ++i) delete[] args[i];
-        delete[] args;
-    }
-
-    if (coding2utf16 == NULL) coding2utf16 = new GBK2UTF16();
-
+	if (coding2utf16 == nullptr) coding2utf16 = new GBK2UTF16();
+    
     // ----------------------------------------
     // Run ONScripter
     if (ons.openScript()) exit(-1);
     if (ons.init()) exit(-1);
     ons.executeLabel();
+	delete coding2utf16;
     exit(0);
 }

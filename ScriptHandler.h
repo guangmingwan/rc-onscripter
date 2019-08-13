@@ -2,8 +2,7 @@
  * 
  *  ScriptHandler.h - Script manipulation class
  *
- *  Copyright (c) 2001-2018 Ogapee. All rights reserved.
- *            (C) 2016-2018 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -122,9 +121,9 @@ public:
     void addStringBuffer( char ch );
     
     // function for direct manipulation of script address 
-    inline char *getCurrent(bool use_script=false){ return (use_script && is_internal_script)?last_script_context->current_script:current_script; };
+    inline char *getCurrent(bool use_script=false){ return (use_script && internal_current_script)?internal_current_script:current_script; };
     inline char *getNext(){ return next_script; };
-    inline char *getWait(){ return wait_script?wait_script:next_script; };
+    inline char *getWait(){ return wait_script; };
     void setCurrent(char *pos);
     void pushCurrent( char *pos );
     void popCurrent();
@@ -160,6 +159,7 @@ public:
     void addIntVariable(char **buf);
     void declareDim();
 
+    void enableTextgosub(bool val);
     void setClickstr( const char *list );
     int  checkClickstr(const char *buf, bool recursive_flag=false);
 
@@ -280,18 +280,6 @@ private:
         };
     };
     
-    struct ScriptContext{
-        ScriptContext *prev, *next;
-        char *current_script;
-        char *next_script;
-        int end_status;
-        VariableInfo current_variable, pushed_variable;
-        ScriptContext(){
-            prev = next = NULL;
-            current_script = next_script = NULL;
-        }
-    };
-
     int  readScript(char *path);
     int  readScriptSub(FILE *fp, char **buf, int encrypt_mode);
     void readConfiguration();
@@ -342,6 +330,7 @@ private:
     bool text_flag; // true if the current token is text
     int  end_status;
     bool linepage_flag;
+    bool textgosub_flag;
     char *clickstr_list;
     bool english_mode;
 
@@ -352,8 +341,10 @@ private:
     char *pushed_current_script;
     char *pushed_next_script;
 
-    bool is_internal_script;
-    ScriptContext root_script_context, *last_script_context;
+    char *internal_current_script;
+    char *internal_next_script;
+    int  internal_end_status;
+    VariableInfo internal_current_variable, internal_pushed_variable;
 
     unsigned char key_table[256];
     bool key_table_flag;

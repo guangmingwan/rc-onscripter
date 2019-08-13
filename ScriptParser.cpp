@@ -2,8 +2,8 @@
  *
  *  ScriptParser.cpp - Define block parser of ONScripter
  *
- *  Copyright (c) 2001-2016 Ogapee. All rights reserved.
- *            (C) 2014-2019 jh10001 <jh10001@live.cn>
+ *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -24,26 +24,13 @@
 
 #include "ScriptParser.h"
 #include "Utils.h"
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-#include "builtin_layer.h"
-LayerInfo layer_info[MAX_LAYER_NUM];
-
-void deleteLayerInfo() {
-    for (int i=0; i<MAX_LAYER_NUM; ++i) {
-        if (layer_info[i].handler) {
-            delete layer_info[i].handler;
-            layer_info[i].handler = NULL;
-        }
-    }
-}
-#endif
 
 #define VERSION_STR1 "ONScripter"
-#define VERSION_STR2 "Copyright (C) 2001-2019 Studio O.G.A. All Rights Reserved.\n          (C) 2014-2019 jh10001"
+#define VERSION_STR2 "Copyright (C) 2001-2014 Studio O.G.A. All Rights Reserved.\n          (C) 2014 jh10001"
 
-#define DEFAULT_SAVE_MENU_NAME coding2utf16->DEFAULT_SAVE_MENU_NAME
-#define DEFAULT_LOAD_MENU_NAME coding2utf16->DEFAULT_LOAD_MENU_NAME
-#define DEFAULT_SAVE_ITEM_NAME coding2utf16->DEFAULT_SAVE_ITEM_NAME
+#define DEFAULT_SAVE_MENU_NAME "£¼±£´æ£¾"
+#define DEFAULT_LOAD_MENU_NAME "£¼ÔØÈë£¾"
+#define DEFAULT_SAVE_ITEM_NAME "ÊéÇ©"
 
 #define DEFAULT_TEXT_SPEED_LOW    40
 #define DEFAULT_TEXT_SPEED_MIDDLE 20
@@ -53,7 +40,11 @@ void deleteLayerInfo() {
 
 ScriptParser::ScriptParser()
 {
-    debug_level = 0;
+#ifdef _DEBUG
+    debug_level = 1;
+#else
+	debug_level = 0;
+#endif
     srand( time(NULL) );
     rand();
 
@@ -137,14 +128,11 @@ void ScriptParser::reset()
     labellog_flag = false;
     filelog_flag = false;
     kidokuskip_flag = false;
-    kidokumode_flag = true;
-    autosaveoff_flag = false;
 
     rmode_flag = true;
     windowback_flag = false;
     usewheel_flag = false;
     useescspc_flag = false;
-    mode_wave_demo_flag = false;
     mode_saya_flag = false;
     mode_ext_flag = false;
     sentence_font.rubyon_flag = false;
@@ -169,7 +157,6 @@ void ScriptParser::reset()
     pretextgosub_label = NULL;
     pretext_buf = NULL;
     loadgosub_label = NULL;
-    textgosub_clickstr_state = CLICK_NONE;
 
     /* ---------------------------------------- */
     /* Lookback related variables */
@@ -265,10 +252,6 @@ void ScriptParser::reset()
     last_effect_link->next = NULL;
 
     current_mode = DEFINE_MODE;
-
-#ifdef USE_BUILTIN_LAYER_EFFECTS
-    deleteLayerInfo();
-#endif
 }
 
 int ScriptParser::openScript()
@@ -345,8 +328,10 @@ void ScriptParser::saveGlovalData()
     allocFileIOBuf();
     writeVariables( script_h.global_variable_border, script_h.variable_range, true );
 
-    if (saveFileIOBuf( "gloval.sav" ))
-        errorAndExit("can't open gloval.sav for writing.");
+    if (saveFileIOBuf( "gloval.sav" )){
+		utils::printError( "can't open gloval.sav for writing\n");
+        exit(-1);
+    }
 }
 
 void ScriptParser::allocFileIOBuf()
@@ -720,7 +705,13 @@ ScriptParser::EffectLink *ScriptParser::parseEffect(bool init_flag)
 
 FILE *ScriptParser::fopen(const char *path, const char *mode, bool use_save_dir)
 {
-    return script_h.fopen(path, mode, use_save_dir);
+    char filename[256];
+    if (use_save_dir && save_dir)
+        sprintf( filename, "%s%s", save_dir, path );
+    else
+        sprintf( filename, "%s%s", archive_path, path );
+
+    return ::fopen( filename, mode );
 }
 
 void ScriptParser::createKeyTable( const char *key_exe )
