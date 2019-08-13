@@ -2,7 +2,8 @@
  *
  *  ScriptHandler.cpp - Script manipulation class
  *
- *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *  Copyright (c) 2001-2015 Ogapee. All rights reserved.
+ *            (C) 2014-2015 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -22,6 +23,7 @@
  */
 
 #include "ScriptHandler.h"
+#include "Utils.h"
 
 #define TMP_SCRIPT_BUF_LEN 4096
 #define STRING_BUFFER_LENGTH 2048
@@ -128,11 +130,11 @@ void ScriptHandler::reset()
 void ScriptHandler::setSaveDir(const char *path)
 {
     if (save_dir) delete[] save_dir;
-    save_dir = new char[ strlen(path) ];
+    save_dir = new char[ strlen(path) + 1 ];
     strcpy(save_dir, path);
 }
 
-FILE *ScriptHandler::fopen( const char *path, const char *mode, bool use_save_dir )
+SDL_RWops *ScriptHandler::fopen( const char *path, const char *mode, bool use_save_dir )
 {
     char *filename;
     if (use_save_dir && save_dir){
@@ -144,7 +146,7 @@ FILE *ScriptHandler::fopen( const char *path, const char *mode, bool use_save_di
         sprintf( filename, "%s%s", archive_path, path );
     }
 
-    FILE *fp = ::fopen( filename, mode );
+    SDL_RWops *fp = SDL_RWFromFile(filename, mode);
     delete[] filename;
 
     return fp;
@@ -277,14 +279,14 @@ const char *ScriptHandler::readToken()
         markAsKidoku( buf++ );
     }
     else if (ch != '\0'){
-        fprintf(stderr, "readToken: skip unknown heading character %c (%x)\n", ch, ch);
+        utils::printError( "readToken: skip unknown heading character %c (%x)\n", ch, ch);
         buf++;
         goto readTokenTop;
     }
 
     next_script = checkComma(buf);
 
-    //printf("readToken [%s] len=%d [%c(%x)] %p\n", string_buffer, strlen(string_buffer), ch, ch, next_script);
+    //utils::printInfo("readToken [%s] len=%d [%c(%x)] %p\n", string_buffer, strlen(string_buffer), ch, ch, next_script);
 
     return string_buffer;
 }
@@ -558,7 +560,7 @@ void ScriptHandler::markAsKidoku( char *address )
 
     int offset = current_script - script_buffer;
     if ( address ) offset = address - script_buffer;
-    //printf("mark (%c)%x:%x = %d\n", *current_script, offset /8, offset%8, kidoku_buffer[ offset/8 ] & ((char)1 << (offset % 8)));
+    //utils::printInfo("mark (%c)%x:%x = %d\n", *current_script, offset /8, offset%8, kidoku_buffer[ offset/8 ] & ((char)1 << (offset % 8)));
     if ( kidoku_buffer[ offset/8 ] & ((char)1 << (offset % 8)) )
         skip_enabled = true;
     else
@@ -573,28 +575,28 @@ void ScriptHandler::setKidokuskip( bool kidokuskip_flag )
 
 void ScriptHandler::saveKidokuData()
 {
-    FILE *fp;
+  SDL_RWops *fp;
 
     if ( ( fp = fopen( "kidoku.dat", "wb", true ) ) == NULL ){
-        fprintf( stderr, "can't write kidoku.dat\n" );
+		utils::printError("can't write kidoku.dat\n");
         return;
     }
 
-    fwrite( kidoku_buffer, 1, script_buffer_length/8, fp );
-    fclose( fp );
+    fp->write(fp, kidoku_buffer, 1, script_buffer_length/8);
+    fp->close( fp );
 }
 
 void ScriptHandler::loadKidokuData()
 {
-    FILE *fp;
+  SDL_RWops *fp;
 
     setKidokuskip( true );
     kidoku_buffer = new char[ script_buffer_length/8 + 1 ];
     memset( kidoku_buffer, 0, script_buffer_length/8 + 1 );
 
     if ( ( fp = fopen( "kidoku.dat", "rb", true ) ) != NULL ){
-        fread( kidoku_buffer, 1, script_buffer_length/8, fp );
-        fclose( fp );
+        fp->read(fp, kidoku_buffer, 1, script_buffer_length/8);
+        fp->close( fp );
     }
 }
 
@@ -896,7 +898,7 @@ void ScriptHandler::addStrAlias( const char *str1, const char *str2 )
 
 void ScriptHandler::errorAndExit( const char *str )
 {
-    fprintf( stderr, " **** Script error, %s [%s] ***\n", str, string_buffer );
+	utils::printError( " **** Script error, %s [%s] ***\n", str, string_buffer);
     exit(-1);
 }
 
@@ -941,7 +943,7 @@ int ScriptHandler::readScript( char *path )
     archive_path = new char[strlen(path) + 1];
     strcpy( archive_path, path );
 
-    FILE *fp = NULL;
+    SDL_RWops *fp = NULL;
     char filename[10];
     int i, encrypt_mode = 0;
     if ((fp = fopen("0.txt", "rb")) != NULL){
@@ -961,15 +963,14 @@ int ScriptHandler::readScript( char *path )
     }
 
     if (fp == NULL){
-        fprintf( stderr, "can't open any of 0.txt, 00.txt, nscript.dat and nscript.___\n" );
+		utils::printError( "can't open any of 0.txt, 00.txt, nscript.dat and nscript.___\n");
         return -1;
     }
     
-    fseek( fp, 0, SEEK_END );
-    int estimated_buffer_length = ftell( fp ) + 1;
+    int estimated_buffer_length = fp->size( fp ) + 1;
 
     if (encrypt_mode == 0){
-        fclose(fp);
+        fp->close(fp);
         for (i=1 ; i<100 ; i++){
             sprintf(filename, "%d.txt", i);
             if ((fp = fopen(filename, "rb")) == NULL){
@@ -977,9 +978,8 @@ int ScriptHandler::readScript( char *path )
                 fp = fopen(filename, "rb");
             }
             if (fp){
-                fseek( fp, 0, SEEK_END );
-                estimated_buffer_length += ftell(fp)+1;
-                fclose(fp);
+                estimated_buffer_length += fp->size(fp)+1;
+                fp->close(fp);
             }
         }
     }
@@ -992,9 +992,9 @@ int ScriptHandler::readScript( char *path )
     
     tmp_script_buf = new unsigned char[TMP_SCRIPT_BUF_LEN];
     if (encrypt_mode > 0){
-        fseek( fp, 0, SEEK_SET );
+        fp->seek( fp, 0, RW_SEEK_SET );
         readScriptSub( fp, &p_script_buffer, encrypt_mode );
-        fclose( fp );
+        fp->close( fp );
     }
     else{
         for (i=0 ; i<100 ; i++){
@@ -1005,7 +1005,7 @@ int ScriptHandler::readScript( char *path )
             }
             if (fp){
                 readScriptSub( fp, &p_script_buffer, 0 );
-                fclose(fp);
+                fp->close(fp);
             }
         }
     }
@@ -1016,7 +1016,7 @@ int ScriptHandler::readScript( char *path )
     return 0;
 }
 
-int ScriptHandler::readScriptSub( FILE *fp, char **buf, int encrypt_mode )
+int ScriptHandler::readScriptSub(SDL_RWops *fp, char **buf, int encrypt_mode)
 {
     unsigned char magic[5] = {0x79, 0x57, 0x0d, 0x80, 0x04 };
     int  magic_counter = 0;
@@ -1030,7 +1030,7 @@ int ScriptHandler::readScriptSub( FILE *fp, char **buf, int encrypt_mode )
     size_t len=0, count=0;
     while(1){
         if (len == count){
-            len = fread(tmp_script_buf, 1, TMP_SCRIPT_BUF_LEN, fp);
+            len = fp->read(fp, tmp_script_buf, 1, TMP_SCRIPT_BUF_LEN);
             if (len == 0){
                 if (cr_flag) *(*buf)++ = 0x0a;
                 break;
@@ -1187,6 +1187,7 @@ int ScriptHandler::labelScript()
                 buf++;
                 current_line++;
             }
+			SKIP_SPACE(buf);
             label_info[ label_counter ].start_address = buf;
         }
         else{
@@ -1358,7 +1359,7 @@ void ScriptHandler::parseStr( char **buf )
             p_str_alias = p_str_alias->next;
         }
         if ( !p_str_alias ){
-            printf("can't find str alias for %s...\n", alias_buf );
+            utils::printInfo("can't find str alias for %s...\n", alias_buf );
             exit(-1);
         }
         current_variable.type |= VAR_CONST;
@@ -1433,7 +1434,7 @@ int ScriptHandler::parseInt( char **buf )
                 p_num_alias = p_num_alias->next;
             }
             if ( !p_num_alias ){
-                //printf("can't find num alias for %s... assume 0.\n", alias_buf );
+                //utils::printInfo("can't find num alias for %s... assume 0.\n", alias_buf );
                 current_variable.type = VAR_NONE;
                 *buf = buf_start;
                 return 0;

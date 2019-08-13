@@ -3,6 +3,7 @@
  *  SarReader.cpp - Reader from a SAR archive
  *
  *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *            (C) 2014 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -22,6 +23,7 @@
  */
 
 #include "SarReader.h"
+#include "Utils.h"
 #define WRITE_LENGTH 4096
 
 #if defined(PSP)
@@ -85,11 +87,11 @@ void SarReader::readArchive( ArchiveInfo *ai, int archive_type, unsigned int off
         long unsigned int cur_offset = offset + 4;
         // there's an extra byte at the end of the header, not sure what for
         while(1){
-            unsigned char ch = key_table[fgetc( ai->file_handle )];
+            unsigned char ch = key_table[fgetc(ai->file_handle)];
             if (ch != '"') break;
             cur_offset++;
             do cur_offset++;
-            while( (ch = key_table[fgetc( ai->file_handle )] ) != '"' );
+            while ((ch = key_table[fgetc(ai->file_handle)]) != '"');
             cur_offset += 4;
             readLong( ai->file_handle );
             ai->num_of_files++;
@@ -98,12 +100,12 @@ void SarReader::readArchive( ArchiveInfo *ai, int archive_type, unsigned int off
 
         // now go back to the beginning and read the file info
         cur_offset = ai->base_offset;
-        fseek( ai->file_handle, 4 + offset, SEEK_SET );
+        ai->file_handle->seek( ai->file_handle, 4 + offset, RW_SEEK_SET );
         for ( i=0 ; i<ai->num_of_files ; i++ ){
             unsigned int count = 0;
             //skip the beginning double-quote
-            unsigned char ch = key_table[fgetc( ai->file_handle )];
-            while( (ch = key_table[fgetc( ai->file_handle )] ) != '"' ){
+            unsigned char ch = key_table[fgetc(ai->file_handle)];
+            while ((ch = key_table[fgetc(ai->file_handle)]) != '"') {
                 if ( 'a' <= ch && ch <= 'z' ) ch += 'A' - 'a';
                 ai->fi_list[i].name[count++] = ch;
             }
@@ -127,7 +129,7 @@ void SarReader::readArchive( ArchiveInfo *ai, int archive_type, unsigned int off
             unsigned char ch;
             int count = 0;
 
-            while( (ch = key_table[fgetc( ai->file_handle )] ) ){
+            while ((ch = key_table[fgetc(ai->file_handle)])) {
                 if ( 'a' <= ch && ch <= 'z' ) ch += 'A' - 'a';
                 ai->fi_list[i].name[count++] = ch;
             }
@@ -161,11 +163,11 @@ void SarReader::readArchive( ArchiveInfo *ai, int archive_type, unsigned int off
     }
 }
 
-int SarReader::writeHeaderSub( ArchiveInfo *ai, FILE *fp, int archive_type, int nsa_offset )
+int SarReader::writeHeaderSub( ArchiveInfo *ai, SDL_RWops *fp, int archive_type, int nsa_offset )
 {
     unsigned int i, j;
 
-    fseek( fp, 0L, SEEK_SET );
+    fp->seek( fp, 0L, RW_SEEK_SET );
     for (int k=0 ; k<nsa_offset ; k++)
         fputc( 0, fp );
     writeShort( fp, ai->num_of_files  );
@@ -174,8 +176,8 @@ int SarReader::writeHeaderSub( ArchiveInfo *ai, FILE *fp, int archive_type, int 
     for ( i=0 ; i<ai->num_of_files ; i++ ){
 
         for ( j=0 ; ai->fi_list[i].name[j] ; j++ )
-            fputc( ai->fi_list[i].name[j], fp );
-        fputc( ai->fi_list[i].name[j], fp );
+          fputc(ai->fi_list[i].name[j], fp);
+        fputc(ai->fi_list[i].name[j], fp);
         
         if ( archive_type >= ARCHIVE_TYPE_NSA )
             writeChar( fp, ai->fi_list[i].compression_type );
@@ -191,23 +193,23 @@ int SarReader::writeHeaderSub( ArchiveInfo *ai, FILE *fp, int archive_type, int 
     return 0;
 }
 
-int SarReader::writeHeader( FILE *fp )
+int SarReader::writeHeader(SDL_RWops *fp)
 {
     ArchiveInfo *ai = archive_info.next;
     return writeHeaderSub( ai, fp );
 }
 
-size_t SarReader::putFileSub( ArchiveInfo *ai, FILE *fp, int no, size_t offset, size_t length, size_t original_length, int compression_type, bool modified_flag, unsigned char *buffer )
+size_t SarReader::putFileSub(ArchiveInfo *ai, SDL_RWops *fp, int no, size_t offset, size_t length, size_t original_length, int compression_type, bool modified_flag, unsigned char *buffer)
 {
     ai->fi_list[no].compression_type = compression_type;
     ai->fi_list[no].length = length;
     ai->fi_list[no].original_length = original_length;
 
-    fseek( fp, offset, SEEK_SET );
+    fp->seek( fp, offset, RW_SEEK_SET );
     if ( modified_flag ){
         if ( ai->fi_list[no].compression_type == NBZ_COMPRESSION ){
             writeLong( fp, ai->fi_list[no].original_length );
-            fseek( ai->file_handle, ai->fi_list[no].offset+2, SEEK_SET );
+            ai->file_handle->seek(ai->file_handle, ai->fi_list[no].offset + 2, RW_SEEK_SET);
             if ( readChar( ai->file_handle ) != 'B' || readChar( ai->file_handle ) != 'Z' ){ // in case the original is not compressed in NBZ
                 ai->fi_list[no].length = encodeNBZ( fp, length, buffer ) + 4;
                 ai->fi_list[no].offset = offset;
@@ -219,8 +221,8 @@ size_t SarReader::putFileSub( ArchiveInfo *ai, FILE *fp, int no, size_t offset, 
         }
     }
     else{
-        fseek( ai->file_handle, ai->fi_list[no].offset, SEEK_SET );
-        fread( buffer, 1, ai->fi_list[no].length, ai->file_handle );
+      ai->file_handle->seek(ai->file_handle, ai->fi_list[no].offset, RW_SEEK_SET);
+      ai->file_handle->read(ai->file_handle, buffer, 1, ai->fi_list[no].length);
     }
 
     size_t len = ai->fi_list[no].length, c;
@@ -228,7 +230,7 @@ size_t SarReader::putFileSub( ArchiveInfo *ai, FILE *fp, int no, size_t offset, 
         if ( len > WRITE_LENGTH ) c = WRITE_LENGTH;
         else                      c = len;
         len -= c;
-        fwrite( buffer, 1, c, fp );
+        fp->write( fp, buffer, 1, c );
         buffer += c;
     }
 
@@ -237,7 +239,7 @@ size_t SarReader::putFileSub( ArchiveInfo *ai, FILE *fp, int no, size_t offset, 
     return ai->fi_list[no].length;
 }
 
-size_t SarReader::putFile( FILE *fp, int no, size_t offset, size_t length, size_t original_length, bool modified_flag, unsigned char *buffer )
+size_t SarReader::putFile(SDL_RWops *fp, int no, size_t offset, size_t length, size_t original_length, bool modified_flag, unsigned char *buffer)
 {
     ArchiveInfo *ai = archive_info.next;
     return putFileSub( ai, fp, no, offset, length, original_length, ai->fi_list[no].compression_type, modified_flag, buffer );
@@ -345,8 +347,8 @@ size_t SarReader::getFileSub( ArchiveInfo *ai, const char *file_name, unsigned c
         return decodeSPB( ai->file_handle, ai->fi_list[i].offset, buf );
     }
 
-    fseek( ai->file_handle, ai->fi_list[i].offset, SEEK_SET );
-    size_t ret = fread( buf, 1, ai->fi_list[i].length, ai->file_handle );
+    ai->file_handle->seek(ai->file_handle, ai->fi_list[i].offset, RW_SEEK_SET);
+    size_t ret = ai->file_handle->read(ai->file_handle, buf, 1, ai->fi_list[i].length);
     if (key_table_flag)
         for (size_t j=0 ; j<ret ; j++) buf[j] = key_table[buf[j]];
     return ret;
@@ -376,7 +378,7 @@ SarReader::FileInfo SarReader::getFileByIndex( unsigned int index )
         index -= info->num_of_files;
         info = info->next;
     }
-    fprintf( stderr, "SarReader::getFileByIndex  Index %d is out of range\n", index );
+    utils::printError("SarReader::getFileByIndex  Index %d is out of range\n", index );
 
     return archive_info.fi_list[index];
 }

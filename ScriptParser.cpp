@@ -2,7 +2,8 @@
  *
  *  ScriptParser.cpp - Define block parser of ONScripter
  *
- *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *  Copyright (c) 2001-2015 Ogapee. All rights reserved.
+ *            (C) 2014-2015 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -22,9 +23,10 @@
  */
 
 #include "ScriptParser.h"
+#include "Utils.h"
 
 #define VERSION_STR1 "ONScripter"
-#define VERSION_STR2 "Copyright (C) 2001-2014 Studio O.G.A. All Rights Reserved."
+#define VERSION_STR2 "Copyright (C) 2001-2014 Studio O.G.A. All Rights Reserved.\n          (C) 2014 jh10001"
 
 #define DEFAULT_SAVE_MENU_NAME "£¼±£´æ£¾"
 #define DEFAULT_LOAD_MENU_NAME "£¼ÔØÈë£¾"
@@ -38,7 +40,7 @@
 
 ScriptParser::ScriptParser()
 {
-    debug_level = 0;
+	debug_level = 0;
     srand( time(NULL) );
     rand();
 
@@ -122,11 +124,13 @@ void ScriptParser::reset()
     labellog_flag = false;
     filelog_flag = false;
     kidokuskip_flag = false;
+	kidokumode_flag = true;
 
     rmode_flag = true;
     windowback_flag = false;
     usewheel_flag = false;
     useescspc_flag = false;
+	mode_wave_demo_flag = false;
     mode_saya_flag = false;
     mode_ext_flag = false;
     sentence_font.rubyon_flag = false;
@@ -308,7 +312,7 @@ int ScriptParser::getSystemCallNo( const char *buffer )
     else if ( !strcmp( buffer, "automode" ) )    return SYSTEM_AUTOMODE;
     else if ( !strcmp( buffer, "end" ) )         return SYSTEM_END;
     else{
-        printf("Unsupported system call %s\n", buffer );
+        utils::printInfo("Unsupported system call %s\n", buffer );
         return -1;
     }
 }
@@ -323,7 +327,7 @@ void ScriptParser::saveGlovalData()
     writeVariables( script_h.global_variable_border, script_h.variable_range, true );
 
     if (saveFileIOBuf( "gloval.sav" )){
-        fprintf( stderr, "can't open gloval.sav for writing\n");
+		utils::printError( "can't open gloval.sav for writing\n");
         exit(-1);
     }
 }
@@ -350,19 +354,19 @@ int ScriptParser::saveFileIOBuf( const char *filename, int offset, const char *s
     bool use_save_dir = false;
     if (strcmp(filename, "envdata") != 0) use_save_dir = true;
     
-    FILE *fp;
+    SDL_RWops *fp;
     if ( (fp = fopen( filename, "wb", use_save_dir )) == NULL ) return -1;
     
-    size_t ret = fwrite(file_io_buf+offset, 1, file_io_buf_ptr-offset, fp);
+    size_t ret = fp->write(fp, file_io_buf + offset, 1, file_io_buf_ptr - offset);
 
     if (savestr){
         fputc('"', fp);
-        fwrite(savestr, 1, strlen(savestr), fp);
+        fp->write(fp, savestr, 1, strlen(savestr));
         fputc('"', fp);
         fputc('*', fp);
     }
 
-    fclose(fp);
+    fp->close(fp);
 
     if (ret != file_io_buf_ptr-offset) return -2;
 
@@ -374,18 +378,17 @@ size_t ScriptParser::loadFileIOBuf( const char *filename )
     bool use_save_dir = false;
     if (strcmp(filename, "envdata") != 0) use_save_dir = true;
 
-    FILE *fp;
+    SDL_RWops *fp;
     if ( (fp = fopen( filename, "rb", use_save_dir )) == NULL )
         return 0;
     
-    fseek(fp, 0, SEEK_END);
-    size_t len = ftell(fp);
+    size_t len = fp->size(fp);
     file_io_buf_ptr = len;
     allocFileIOBuf();
 
-    fseek(fp, 0, SEEK_SET);
-    size_t ret = fread(file_io_buf, 1, len, fp);
-    fclose(fp);
+    fp->seek(fp, 0, RW_SEEK_SET);
+    size_t ret = fp->read(fp, file_io_buf, 1, len);
+    fp->close(fp);
 
     return ret;
 }
@@ -549,7 +552,7 @@ void ScriptParser::writeLog( ScriptHandler::LogInfo &info )
     }
 
     if (saveFileIOBuf( info.filename )){
-        fprintf( stderr, "can't write %s\n", info.filename );
+        utils::printError("can't write %s\n", info.filename );
         exit( -1 );
     }
 }
@@ -580,12 +583,12 @@ void ScriptParser::readLog( ScriptHandler::LogInfo &info )
 void ScriptParser::errorAndExit( const char *str, const char *reason )
 {
     if ( reason )
-        fprintf( stderr, " *** Parse error at %s:%d [%s]; %s ***\n",
+        utils::printError(" *** Parse error at %s:%d [%s]; %s ***\n",
                  current_label_info.name,
                  current_line,
                  str, reason );
     else
-        fprintf( stderr, " *** Parse error at %s:%d [%s] ***\n",
+        utils::printError( " *** Parse error at %s:%d [%s] ***\n",
                  current_label_info.name,
                  current_line,
                  str );
@@ -668,11 +671,11 @@ int ScriptParser::readEffect( EffectLink *effect )
             effect->anim.remove();
     }
     else if (effect->effect < 0 || effect->effect > 255){
-        fprintf(stderr, "Effect %d is out of range and is switched to 0.\n", effect->effect);
+        utils::printError( "Effect %d is out of range and is switched to 0.\n", effect->effect);
         effect->effect = 0; // to suppress error
     }
 
-    //printf("readEffect %d: %d %d %s\n", num, effect->effect, effect->duration, effect->anim.image_name );
+    //utils::printInfo("readEffect %d: %d %d %s\n", num, effect->effect, effect->duration, effect->anim.image_name );
     return num;
 }
 
@@ -691,13 +694,13 @@ ScriptParser::EffectLink *ScriptParser::parseEffect(bool init_flag)
         link = link->next;
     }
 
-    fprintf(stderr, "Effect No. %d is not found.\n", tmp_effect.effect);
+    utils::printError( "Effect No. %d is not found.\n", tmp_effect.effect);
     exit(-1);
 
     return NULL;
 }
 
-FILE *ScriptParser::fopen(const char *path, const char *mode, bool use_save_dir)
+SDL_RWops *ScriptParser::fopen(const char *path, const char *mode, bool use_save_dir)
 {
     char filename[256];
     if (use_save_dir && save_dir)
@@ -705,16 +708,16 @@ FILE *ScriptParser::fopen(const char *path, const char *mode, bool use_save_dir)
     else
         sprintf( filename, "%s%s", archive_path, path );
 
-    return ::fopen( filename, mode );
+    return SDL_RWFromFile( filename, mode );
 }
 
 void ScriptParser::createKeyTable( const char *key_exe )
 {
     if (!key_exe) return;
     
-    FILE *fp = ::fopen(key_exe, "rb");
+    SDL_RWops *fp = SDL_RWFromFile(key_exe, "rb");
     if (fp == NULL){
-        fprintf(stderr, "createKeyTable: can't open EXE file %s\n", key_exe);
+        utils::printError( "createKeyTable: can't open EXE file %s\n", key_exe);
         return;
     }
 
@@ -741,7 +744,7 @@ void ScriptParser::createKeyTable( const char *key_exe )
         ring_buffer[ring_last] = ch;
         ring_last = (ring_last+1)%256;
     }
-    fclose(fp);
+    fp->close(fp);
 
     if (ch == EOF)
         errorAndExit( "createKeyTable: can't find a key table." );

@@ -2,7 +2,8 @@
  * 
  *  ONScripter_sound.cpp - Methods for playing sound
  *
- *  Copyright (c) 2001-2014 Ogapee. All rights reserved.
+ *  Copyright (c) 2001-2015 Ogapee. All rights reserved.
+ *            (C) 2014-2015 jh10001 <jh10001@live.cn>
  *
  *  ogapee@aqua.dti2.ne.jp
  *
@@ -22,6 +23,7 @@
  */
 
 #include "ONScripter.h"
+#include "Utils.h"
 #include <new>
 #if defined(LINUX)
 #include <signal.h>
@@ -118,6 +120,11 @@ int ONScripter::playSound(const char *filename, int format, bool loop_flag, int 
 
     long length = script_h.cBR->getFileLength( filename );
     if (length == 0) return SOUND_NONE;
+    if (!mode_wave_demo_flag &&
+		((skip_mode & SKIP_NORMAL) || ctrl_pressed_status) && (format & SOUND_CHUNK) &&
+		((channel < ONS_MIX_CHANNELS) || (channel == MIX_WAVE_CHANNEL))) {
+           return SOUND_NONE;
+	}
 
     unsigned char *buffer;
 
@@ -129,25 +136,35 @@ int ONScripter::playSound(const char *filename, int format, bool loop_flag, int 
     else{
         buffer = new(std::nothrow) unsigned char[length];
         if (buffer == NULL){
-            fprintf( stderr, "failed to load [%s] because file size [%lu] is too large.\n", filename, length);
+            utils::printError("failed to load [%s] because file size [%lu] is too large.\n", filename, length);
             return SOUND_NONE;
         }
         script_h.cBR->getFile( filename, buffer );
     }
     
     if (format & SOUND_MUSIC){
-        music_info = Mix_LoadMUS_RW( SDL_RWFromMem( buffer, length ) );
+#if SDL_MIXER_MAJOR_VERSION >= 2
+        music_info = Mix_LoadMUS_RW( SDL_RWFromMem( buffer, length ), 0);
+#else
+		music_info = Mix_LoadMUS_RW(SDL_RWFromMem(buffer, length));
+#endif
+		if (music_info == nullptr) {
+			utils::printError("can't load music \"%s\": %s\n", filename, Mix_GetError());
+		}
         Mix_VolumeMusic( music_volume );
-        Mix_HookMusicFinished( musicFinishCallback );
         if ( Mix_PlayMusic( music_info, (music_play_loop_flag&&music_loopback_offset==0.0)?-1:0 ) == 0 ){
             music_buffer = buffer;
             music_buffer_length = length;
             return SOUND_MUSIC;
         }
+		Mix_HookMusicFinished(musicFinishCallback);
     }
     
     if (format & SOUND_CHUNK){
         Mix_Chunk *chunk = Mix_LoadWAV_RW(SDL_RWFromMem(buffer, length), 1);
+		if (chunk == nullptr) {
+			utils::printError("can't load chunk \"%s\": %s\n", filename, Mix_GetError());
+		}
         if (playWave(chunk, format, loop_flag, channel) == 0){
             delete[] buffer;
             return SOUND_CHUNK;
@@ -162,13 +179,13 @@ int ONScripter::playSound(const char *filename, int format, bool loop_flag, int 
     }
 
     if (format & SOUND_MIDI){
-        FILE *fp;
+        SDL_RWops *fp;
         if ( (fp = fopen(TMP_MUSIC_FILE, "wb", true)) == NULL){
-            fprintf(stderr, "can't open temporaly MIDI file %s\n", TMP_MUSIC_FILE);
+            utils::printError("can't open temporaly MIDI file %s\n", TMP_MUSIC_FILE);
         }
         else{
-            fwrite(buffer, 1, length, fp);
-            fclose( fp );
+            fp->write(fp, buffer, 1, length);
+            fp->close( fp );
             ext_music_play_once_flag = !loop_flag;
             if (playMIDI(loop_flag) == 0){
                 delete[] buffer;
@@ -252,7 +269,7 @@ int ONScripter::playMPEG(const char *filename, bool click_flag, bool loop_flag)
 {
     unsigned long length = script_h.cBR->getFileLength( filename );
     if (length == 0){
-        fprintf( stderr, " *** can't find file [%s] ***\n", filename );
+        utils::printError(" *** can't find file [%s] ***\n", filename );
         return 0;
     }
 
@@ -301,6 +318,11 @@ int ONScripter::playMPEG(const char *filename, bool click_flag, bool loop_flag)
                          ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_SPACE ||
                          ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_ESCAPE )
                         done_flag = true;
+					if ( ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_RCTRL)
+						ctrl_pressed_status &= ~0x01;
+
+					if ( ((SDL_KeyboardEvent *)&event)->keysym.sym == SDLK_LCTRL)
+						ctrl_pressed_status &= ~0x02;
                     break;
                   case SDL_QUIT:
                     ret = 1;
@@ -321,7 +343,7 @@ int ONScripter::playMPEG(const char *filename, bool click_flag, bool loop_flag)
     }
     delete[] mpeg_buffer;
 #else
-    fprintf( stderr, "mpegplay command is disabled.\n" );
+    utils::printError( "mpegplay command is disabled.\n" );
 #endif
 
     return ret;
@@ -331,7 +353,7 @@ int ONScripter::playAVI( const char *filename, bool click_flag )
 {
     unsigned long length = script_h.cBR->getFileLength( filename );
     if (length == 0){
-        fprintf( stderr, " *** can't find file [%s] ***\n", filename );
+        utils::printError( " *** can't find file [%s] ***\n", filename );
         return 0;
     }
 
@@ -363,7 +385,7 @@ int ONScripter::playAVI( const char *filename, bool click_flag )
         openAudio();
     }
 #else
-    fprintf( stderr, "avi command is disabled.\n" );
+    utils::printError( "avi command is disabled.\n" );
 #endif
 
     return 0;
