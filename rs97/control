@@ -1,0 +1,10 @@
+Package: ons
+Version: 20190824
+Description: ONScripter
+Section: emulators 
+Priority: optional
+Maintainer: netwan
+Architecture: mipsel
+Homepage: https://github.com/guangmingwan/rc-onscripter/tree/rs97
+Depends:
+Source: https://github.com/guangmingwan/rc-onscripter/tree/rs97

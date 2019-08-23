@@ -1,0 +1,8 @@
+title=ONS模拟器
+description=是一款非常棒的游戏模拟器。软件可以轻松地帮助你完美的运行各种日系ons游戏.
+exec=/home/retrofw/emus/ons/ons.dge
+selectorfilter=.txt,.nsa
+selectordir=/media/mmcblk1p1/
+selectorbrowser=true
+icon=ons.png
+clock=600
