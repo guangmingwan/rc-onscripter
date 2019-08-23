@@ -70,7 +70,7 @@ void ONScripter::initSDL()
         printf( "Initialize JOYSTICK\n");
 #endif
     
-#if defined(PSP) || defined(IPODLINUX) || defined(GP2X) ||defined(RC) || defined(WINCE)
+#if defined(PSP) || defined(IPODLINUX) || defined(GP2X) ||defined(rs97) ||defined(RC) || defined(WINCE)
     SDL_ShowCursor(SDL_DISABLE);
 #endif
 

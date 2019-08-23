@@ -191,6 +191,29 @@ SDLKey transJoystickButton(Uint8 button)
         SDLK_UNKNOWN, /* STICK     */
     };
     return button_map[button];
+#elif defined(rs97)
+    SDLKey button_map[] = {
+        SDLK_UP,      /* UP        */
+        SDLK_UNKNOWN, /* UPLEFT    */
+        SDLK_LEFT,    /* LEFT      */
+        SDLK_UNKNOWN, /* DOWNLEFT  */
+        SDLK_DOWN,    /* DOWN      */
+        SDLK_UNKNOWN, /* DOWNRIGHT */
+        SDLK_RIGHT,   /* RIGHT     */
+        SDLK_UNKNOWN, /* UPRIGHT   */
+        SDLK_RETURN,  /* START     */
+        SDLK_ESCAPE,  /* SELECT    */
+        SDLK_TAB,     /* L         */
+        SDLK_BACKSPACE,/* R         */
+        SDLK_LCTRL,   /* A         */
+        SDLK_LALT,    /* B         */
+        SDLK_SPACE,   /* X         */
+        SDLK_LSHIFT,  /* Y         */
+        SDLK_UNKNOWN, /* VOLUP     */
+        SDLK_UNKNOWN, /* VOLDOWN   */
+        SDLK_UNKNOWN, /* STICK     */
+    };
+    return button_map[button];
 #elif defined(RC)
     SDLKey button_map[] = {
 	SDLK_SPACE,   /* X         */
